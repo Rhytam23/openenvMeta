@@ -1,8 +1,8 @@
 ---
 title: Smart Parking Simulation
 emoji: 🚗
-colorFrom: "#1e3a8a"
-colorTo: "#3b82f6"
+colorFrom: blue
+colorTo: indigo
 sdk: docker
 python_version: "3.10"
 app_file: app.py
