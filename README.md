@@ -1,3 +1,15 @@
+---
+title: Smart Parking Simulation
+emoji: 🚗
+colorFrom: "#1e3a8a"
+colorTo: "#3b82f6"
+sdk: openenv
+sdk_version: "0.2.0"
+python_version: "3.10"
+app_file: app.py
+pinned: false
+---
+
 # Smart Parking Simulation (OpenEnv)
 
 A production-grade, OpenEnv-compliant simulation environment for urban parking discovery and reservation. This project aims to model real-world congestion challenges and evaluate intelligent agents on their ability to efficiently navigate and secure parking in a dynamic city grid.
