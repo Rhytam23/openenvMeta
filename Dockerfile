@@ -10,11 +10,11 @@ RUN npm run build
 FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PORT=8000
+    PORT=7860
 WORKDIR /app
 COPY . .
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 RUN chmod +x entrypoint.sh && pip install --no-cache-dir -e .
-EXPOSE 8000
+EXPOSE 7860
 LABEL org.openenv.tags="openenv"
 ENTRYPOINT ["./entrypoint.sh"]

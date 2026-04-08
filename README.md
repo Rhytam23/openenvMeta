@@ -3,10 +3,10 @@ title: Smart Parking Simulation
 emoji: 🚗
 colorFrom: "#1e3a8a"
 colorTo: "#3b82f6"
-sdk: openenv
-sdk_version: "0.2.0"
+sdk: docker
 python_version: "3.10"
 app_file: app.py
+app_port: 7860
 pinned: false
 ---
 
