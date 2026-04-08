@@ -62,8 +62,8 @@ async def get_state():
 
 
 @app.post("/reset")
-async def reset_env(req: ResetRequest):
-    task_name = req.task if req.task in TASKS else "easy"
+async def reset_env(req: ResetRequest | None = None):
+    task_name = req.task if req and req.task in TASKS else "easy"
     task = TASKS[task_name]()
     global _task_instance, _env_instance
     _task_instance = task
