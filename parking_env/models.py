@@ -117,6 +117,8 @@ class ParkingLot(BaseModel):
     drive_minutes: int
     confidence: float = Field(ge=0.0, le=1.0)
     reservation_supported: bool = False
+    map_url: Optional[str] = None
+    booking_url: Optional[str] = None
 
 
 class ParkingRecommendation(BaseModel):
@@ -125,6 +127,9 @@ class ParkingRecommendation(BaseModel):
     reason: str
     tradeoff: str
     distance_to_destination: float = Field(ge=0.0)
+    distance_from_origin: float = Field(ge=0.0)
+    travel_distance: float = Field(ge=0.0)
+    estimated_drive_minutes: int = Field(ge=0)
     estimated_total_minutes: int = Field(ge=0)
 
 
@@ -171,3 +176,11 @@ class AssistantState(BaseModel):
     recent_searches: List[AssistantHistoryEntry]
     best_option: Optional[ParkingRecommendation] = None
     recommendations: List[ParkingRecommendation]
+
+
+class FavoriteTrip(BaseModel):
+    id: str
+    label: str
+    destination: str
+    mode: str
+    preference: TripPreference

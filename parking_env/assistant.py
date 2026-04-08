@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Dict, List, Tuple
 
 from .models import (
@@ -72,7 +73,15 @@ def _destination(destination: str) -> Tuple[str, Tuple[float, float]]:
 
 
 def _distance(a: Tuple[float, float], b: Tuple[float, float]) -> float:
-    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+    lat1, lng1 = a
+    lat2, lng2 = b
+    r = 6371.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lambda = math.radians(lng2 - lng1)
+    h = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
+    return 2 * r * math.atan2(math.sqrt(h), math.sqrt(1 - h))
 
 
 def _score_lot(
@@ -84,16 +93,20 @@ def _score_lot(
 ) -> ParkingRecommendation:
     availability = lot.available_spots / max(1, lot.total_spots)
     distance_to_dest = _distance(lot.position, destination_point)
-    commute_pressure = _distance(lot.position, origin)
+    distance_from_origin = _distance(origin, lot.position)
+    travel_distance = distance_from_origin + distance_to_dest
+    commute_pressure = distance_from_origin
     walk_penalty = max(0, lot.walk_minutes - 3) * (0.03 if mode == "walk" else 0.02)
     drive_penalty = lot.drive_minutes * (0.02 if mode == "drive" else 0.01)
     price_penalty = min(lot.hourly_rate / 20.0, 0.2)
     scarcity_penalty = 0.25 if lot.available_spots <= 10 else 0.0
     confidence_bonus = lot.confidence * 0.18
-    proximity_bonus = max(0.0, 0.35 - distance_to_dest * 0.01)
+    proximity_bonus = max(0.0, 0.42 - distance_to_dest * 0.08)
     reserve_bonus = 0.12 if lot.reservation_supported else 0.0
     cheapest_bonus = max(0.0, 0.12 - lot.hourly_rate / 100.0)
-    closest_bonus = max(0.0, 0.15 - distance_to_dest * 0.35)
+    closest_bonus = max(0.0, 0.2 - distance_to_dest * 0.12)
+    drive_minutes = max(lot.drive_minutes, round(distance_from_origin * 2.2) + 2)
+    estimated_total_minutes = drive_minutes + lot.walk_minutes
 
     score = (
         availability * 0.34
@@ -114,32 +127,34 @@ def _score_lot(
     elif preference == TripPreference.CHEAPEST:
         score += max(0.0, 0.16 - lot.hourly_rate / 50.0)
     elif preference == TripPreference.CLOSEST:
-        score += max(0.0, 0.14 - distance_to_dest * 0.2)
+        score += max(0.0, 0.16 - distance_to_dest * 0.15)
     else:
         score += 0.05 if lot.reservation_supported else 0.0
 
     score = max(0.0, min(1.0, round(score, 4)))
-    estimated_total_minutes = lot.drive_minutes + lot.walk_minutes
 
     if lot.reservation_supported and lot.available_spots > 0:
         reason = f"{lot.name} balances access, confidence, and reserve support."
-        tradeoff = f"{lot.walk_minutes} min walk, ${lot.hourly_rate:.2f}/hr, reservation available."
+        tradeoff = f"{drive_minutes} min drive, {lot.walk_minutes} min walk, reservation available."
     elif preference == TripPreference.CHEAPEST:
         reason = f"{lot.name} keeps cost low for a budget-first trip."
-        tradeoff = f"{lot.walk_minutes} min walk, ${lot.hourly_rate:.2f}/hr, walk-in only."
+        tradeoff = f"{drive_minutes} min drive, {lot.walk_minutes} min walk, walk-in only."
     elif preference == TripPreference.CLOSEST:
         reason = f"{lot.name} is the nearest practical option to the destination."
-        tradeoff = f"{lot.walk_minutes} min walk, ${lot.hourly_rate:.2f}/hr, limited reserve support."
+        tradeoff = f"{drive_minutes} min drive, {lot.walk_minutes} min walk, limited reserve support."
     else:
         reason = f"{lot.name} offers dependable access for a normal arrival."
-        tradeoff = f"{lot.walk_minutes} min walk, ${lot.hourly_rate:.2f}/hr, no reservation."
+        tradeoff = f"{drive_minutes} min drive, {lot.walk_minutes} min walk, no reservation."
 
     return ParkingRecommendation(
         lot=lot,
         score=score,
         reason=reason,
         tradeoff=tradeoff,
-        distance_to_destination=round(distance_to_dest, 4),
+        distance_to_destination=round(distance_to_dest, 3),
+        distance_from_origin=round(distance_from_origin, 3),
+        travel_distance=round(travel_distance, 3),
+        estimated_drive_minutes=drive_minutes,
         estimated_total_minutes=estimated_total_minutes,
     )
 

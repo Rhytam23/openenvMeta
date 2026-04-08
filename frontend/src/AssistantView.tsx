@@ -20,6 +20,7 @@ import {
   AssistantPreset,
   AssistantState,
   DestinationOption,
+  FavoriteTrip,
   ParkingLot,
   Recommendation,
   TripPreference,
@@ -41,14 +42,36 @@ export function AssistantView() {
   const [destination, setDestination] = useState("downtown");
   const [mode, setMode] = useState("drive");
   const [preference, setPreference] = useState<TripPreference>("balanced");
+  const [originOverride, setOriginOverride] = useState<[number, number] | null>(null);
+  const [favorites, setFavorites] = useState<FavoriteTrip[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const favoriteStorageKey = "openenv.parking.favorites.v1";
 
   useEffect(() => {
     void load();
     const timer = window.setInterval(() => void load(true), 8000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(favoriteStorageKey);
+      if (raw) {
+        setFavorites(JSON.parse(raw) as FavoriteTrip[]);
+      }
+    } catch {
+      setFavorites([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(favoriteStorageKey, JSON.stringify(favorites));
+    } catch {
+      // ignore storage failures
+    }
+  }, [favorites]);
 
   async function load(silent = false) {
     try {
@@ -62,6 +85,7 @@ export function AssistantView() {
         setDestination(stateRes.data.destination);
         setMode(stateRes.data.travel_mode);
         setPreference(stateRes.data.preference);
+        if (!originOverride) setOriginOverride(stateRes.data.origin);
       }
       setError("");
     } catch {
@@ -79,10 +103,12 @@ export function AssistantView() {
   }
 
   async function search(refresh = false, overrides?: Partial<{ destination: string; mode: string; preference: TripPreference }>) {
+    const origin = originOverride ?? assistant?.origin ?? undefined;
     const payload = {
       destination: overrides?.destination ?? destination,
       mode: overrides?.mode ?? mode,
       preference: overrides?.preference ?? preference,
+      origin,
     };
     setBusy(true);
     try {
@@ -103,6 +129,7 @@ export function AssistantView() {
   const recommendations = assistant?.recommendations ?? [];
   const presets = assistant?.presets ?? [];
   const history = assistant?.recent_searches ?? [];
+  const currentOrigin = originOverride ?? assistant?.origin ?? null;
 
   const selectedDestination = destinations.find((item) => item.id === destination) ?? null;
 
@@ -113,12 +140,65 @@ export function AssistantView() {
     await search(false, { destination: preset.destination, mode: preset.mode, preference: preset.preference });
   }
 
-  function openDirections() {
-    if (!assistant) return;
-    const origin = `${assistant.origin[0]},${assistant.origin[1]}`;
-    const destinationCoords = `${assistant.destination_position[0]},${assistant.destination_position[1]}`;
-    const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destinationCoords)}&travelmode=${assistant.travel_mode === "walk" ? "walking" : "driving"}`;
+  function openDirectionsTo(target: [number, number], travelMode: string = mode) {
+    const origin = originOverride ?? assistant?.origin;
+    if (!origin) return;
+    const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(`${origin[0]},${origin[1]}`)}&destination=${encodeURIComponent(`${target[0]},${target[1]}`)}&travelmode=${travelMode === "walk" ? "walking" : "driving"}`;
     window.open(mapsUrl, "_blank", "noopener,noreferrer");
+  }
+
+  function openLotDirections(lot: ParkingLot) {
+    openDirectionsTo(lot.position);
+  }
+
+  function openLotReservation(lot: ParkingLot) {
+    if (lot.booking_url) {
+      window.open(lot.booking_url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    const query = encodeURIComponent(`${lot.name} parking reservation`);
+    window.open(`https://www.google.com/search?q=${query}`, "_blank", "noopener,noreferrer");
+  }
+
+  function useCurrentLocation() {
+    if (!navigator.geolocation) {
+      setError("Your browser does not support location sharing.");
+      return;
+    }
+    setBusy(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setOriginOverride([position.coords.latitude, position.coords.longitude]);
+        setError("");
+        setBusy(false);
+      },
+      () => {
+        setError("Location access was denied.");
+        setBusy(false);
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 },
+    );
+  }
+
+  function saveFavorite() {
+    const next: FavoriteTrip = {
+      id: `${destination}-${mode}-${preference}`,
+      label: selectedDestination?.label ?? destination,
+      destination,
+      mode,
+      preference,
+    };
+    setFavorites((prev) => {
+      const filtered = prev.filter((item) => item.id !== next.id);
+      return [next, ...filtered].slice(0, 8);
+    });
+  }
+
+  async function applyFavorite(item: FavoriteTrip) {
+    setDestination(item.destination);
+    setMode(item.mode);
+    setPreference(item.preference);
+    await search(false, { destination: item.destination, mode: item.mode, preference: item.preference });
   }
 
   return (
@@ -175,8 +255,43 @@ export function AssistantView() {
             >
               Re-score current trip
             </button>
+            <button
+              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10 disabled:opacity-60"
+              onClick={useCurrentLocation}
+              disabled={busy}
+            >
+              Use my location
+            </button>
+            <button
+              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10 disabled:opacity-60"
+              onClick={saveFavorite}
+              disabled={busy}
+            >
+              Save favorite
+            </button>
           </div>
         </div>
+
+        {favorites.length > 0 && (
+          <div className="mb-5 rounded-[1.6rem] border border-white/10 bg-white/5 p-4">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.35em] text-slate-400">
+              <MapPin className="h-4 w-4" />
+              Favorites
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {favorites.map((item) => (
+                <button
+                  key={item.id}
+                  disabled={busy}
+                  onClick={() => void applyFavorite(item)}
+                  className="rounded-full border border-white/10 bg-slate-950/60 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10 disabled:opacity-50"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {presets.length > 0 && (
           <div className="mb-5 rounded-[1.6rem] border border-white/10 bg-white/5 p-4">
@@ -217,7 +332,7 @@ export function AssistantView() {
             action={
               assistant ? (
                 <button
-                  onClick={openDirections}
+                  onClick={() => openDirectionsTo(assistant.destination_position)}
                   className="inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1.5 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/20"
                 >
                   Open directions
@@ -236,12 +351,15 @@ export function AssistantView() {
                   destinationLabel={assistant.destination_label}
                 />
                 <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                  <InfoBadge label="Origin" value={formatPos(assistant.origin)} />
+                  <InfoBadge label="Origin" value={formatPos(currentOrigin)} />
                   <InfoBadge label="Destination" value={formatPos(assistant.destination_position)} />
                   <InfoBadge label="Strategy" value={assistant.preference} />
                 </div>
                 <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-slate-300">
                   Selected area: {selectedDestination?.label ?? assistant.destination_label}
+                </div>
+                <div className="mt-2 text-xs uppercase tracking-[0.28em] text-slate-400">
+                  {originOverride ? "GPS origin active" : "Using assistant default origin"}
                 </div>
               </div>
             ) : (
@@ -268,11 +386,30 @@ export function AssistantView() {
                   <InfoRow label="Rate" value={`$${recommended.lot.hourly_rate.toFixed(2)}/hr`} />
                   <InfoRow label="Drive" value={`${recommended.lot.drive_minutes} min`} />
                   <InfoRow label="Walk" value={`${recommended.lot.walk_minutes} min`} />
+                  <InfoRow label="Origin travel" value={`${recommended.estimated_drive_minutes} min`} />
                   <InfoRow label="Est. total" value={`${recommended.estimated_total_minutes} min`} />
+                  <InfoRow label="Trip dist." value={`${recommended.travel_distance.toFixed(2)} km`} />
                   <InfoRow label="Dist. to dest" value={recommended.distance_to_destination.toFixed(3)} />
+                  <InfoRow label="From origin" value={`${recommended.distance_from_origin.toFixed(2)} km`} />
                 </div>
                 <p className="mt-4 text-sm text-cyan-50">{recommended.reason}</p>
                 <p className="mt-2 text-sm text-slate-300">{recommended.tradeoff}</p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => openLotDirections(recommended.lot)}
+                    className="rounded-full border border-cyan-300/20 bg-cyan-400/15 px-4 py-2 text-sm font-semibold text-cyan-50 transition hover:bg-cyan-300/25"
+                  >
+                    Navigate
+                  </button>
+                  {recommended.lot.reservation_supported && (
+                    <button
+                      onClick={() => openLotReservation(recommended.lot)}
+                      className="rounded-full border border-emerald-300/20 bg-emerald-400/15 px-4 py-2 text-sm font-semibold text-emerald-50 transition hover:bg-emerald-300/25"
+                    >
+                      Reserve
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="rounded-2xl border border-dashed border-white/10 px-4 py-8 text-sm text-slate-400">
@@ -304,6 +441,22 @@ export function AssistantView() {
                       <MiniStat label="Rate" value={`$${item.lot.hourly_rate.toFixed(2)}`} />
                       <MiniStat label="Conf." value={`${Math.round(item.lot.confidence * 100)}%`} />
                     </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      onClick={() => openLotDirections(item.lot)}
+                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-cyan-300/40 hover:bg-cyan-400/10"
+                    >
+                      Navigate
+                    </button>
+                    {item.lot.reservation_supported && (
+                      <button
+                        onClick={() => openLotReservation(item.lot)}
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-emerald-300/40 hover:bg-emerald-400/10"
+                      >
+                        Reserve
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}

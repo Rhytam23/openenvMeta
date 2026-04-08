@@ -60,6 +60,8 @@ export interface ParkingLot {
   drive_minutes: number;
   confidence: number;
   reservation_supported: boolean;
+  map_url?: string | null;
+  booking_url?: string | null;
 }
 
 export interface Recommendation {
@@ -68,6 +70,9 @@ export interface Recommendation {
   reason: string;
   tradeoff: string;
   distance_to_destination: number;
+  distance_from_origin: number;
+  travel_distance: number;
+  estimated_drive_minutes: number;
   estimated_total_minutes: number;
 }
 
@@ -107,6 +112,14 @@ export interface AssistantHistoryEntry {
   best_lot: string | null;
   score: number;
   searched_at: string;
+}
+
+export interface FavoriteTrip {
+  id: string;
+  label: string;
+  destination: string;
+  mode: string;
+  preference: TripPreference;
 }
 
 export const manhattan = (a: [number, number], b: [number, number]) =>

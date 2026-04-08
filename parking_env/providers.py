@@ -55,6 +55,8 @@ def _base_lots() -> List[ParkingLot]:
             drive_minutes=5,
             confidence=0.94,
             reservation_supported=True,
+            map_url="https://www.google.com/maps/search/?api=1&query=18+East+Plaza",
+            booking_url="https://www.google.com/search?q=East+Deck+parking+reservation",
         ),
         ParkingLot(
             id="lot-west-2",
@@ -68,6 +70,8 @@ def _base_lots() -> List[ParkingLot]:
             drive_minutes=6,
             confidence=0.89,
             reservation_supported=True,
+            map_url="https://www.google.com/maps/search/?api=1&query=41+Hudson+Ave",
+            booking_url="https://www.google.com/search?q=West+Garage+parking+reservation",
         ),
         ParkingLot(
             id="lot-north-3",
@@ -81,6 +85,7 @@ def _base_lots() -> List[ParkingLot]:
             drive_minutes=4,
             confidence=0.84,
             reservation_supported=False,
+            map_url="https://www.google.com/maps/search/?api=1&query=7+Liberty+Park",
         ),
         ParkingLot(
             id="lot-south-4",
@@ -94,6 +99,8 @@ def _base_lots() -> List[ParkingLot]:
             drive_minutes=8,
             confidence=0.91,
             reservation_supported=True,
+            map_url="https://www.google.com/maps/search/?api=1&query=300+River+Road",
+            booking_url="https://www.google.com/search?q=South+Tower+Garage+parking+reservation",
         ),
         ParkingLot(
             id="lot-central-5",
@@ -107,6 +114,8 @@ def _base_lots() -> List[ParkingLot]:
             drive_minutes=3,
             confidence=0.97,
             reservation_supported=True,
+            map_url="https://www.google.com/maps/search/?api=1&query=99+Central+Ave",
+            booking_url="https://www.google.com/search?q=Central+Plaza+Parking+reservation",
         ),
         ParkingLot(
             id="lot-river-6",
@@ -120,5 +129,6 @@ def _base_lots() -> List[ParkingLot]:
             drive_minutes=7,
             confidence=0.87,
             reservation_supported=False,
+            map_url="https://www.google.com/maps/search/?api=1&query=201+Harbor+Way",
         ),
     ]
