@@ -51,13 +51,20 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("Loading simulation...");
   const [error, setError] = useState("");
+  const episodeDone = Boolean(state && (state.is_parked || state.steps_elapsed >= state.max_steps));
 
   async function fetchState(silent = false) {
     try {
       const response = await api.get<EnvState>("/state");
       setState(response.data);
       if (!silent) {
-        setMessage(response.data.is_parked ? "Vehicle parked successfully." : response.data.objective);
+        setMessage(
+          response.data.is_parked
+            ? "Vehicle parked successfully."
+            : response.data.steps_elapsed >= response.data.max_steps
+              ? "Episode complete: step budget exhausted."
+              : response.data.objective,
+        );
       }
       setError("");
     } catch {
@@ -83,7 +90,7 @@ function App() {
   }
 
   async function step(action: { type: string; direction?: Direction }) {
-    if (!state) {
+    if (!state || episodeDone) {
       return;
     }
     setBusy(true);
@@ -199,46 +206,63 @@ function App() {
         </section>
 
         <aside className="w-full rounded-[2rem] border border-white/10 bg-slate-900/95 p-5 lg:w-[24rem]">
-          <div className="grid grid-cols-2 gap-3">
-            <Metric label="Score" value={state ? state.score.toFixed(2) : "--"} accent="text-cyan-300" />
+            <div className="grid grid-cols-2 gap-3">
+              <Metric label="Score" value={state ? state.score.toFixed(2) : "--"} accent="text-cyan-300" />
             <Metric
               label="Reward"
               value={state ? state.metrics.total_reward.toFixed(2) : "--"}
               accent="text-emerald-300"
             />
-            <Metric label="Steps" value={state ? `${state.steps_elapsed}/${state.max_steps}` : "--"} accent="text-white" />
-            <Metric label="Scans" value={state ? String(state.metrics.scans) : "--"} accent="text-amber-200" />
+              <Metric label="Steps" value={state ? `${state.steps_elapsed}/${state.max_steps}` : "--"} accent="text-white" />
+              <Metric label="Scans" value={state ? String(state.metrics.scans) : "--"} accent="text-amber-200" />
+            </div>
+
+          <div
+            className={`mt-5 rounded-3xl border p-4 text-sm ${
+              episodeDone
+                ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-100"
+                : "border-white/10 bg-white/5 text-slate-300"
+            }`}
+          >
+            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Episode</p>
+            <p className="mt-2 font-semibold">
+              {episodeDone
+                ? state?.is_parked
+                  ? "Complete: parked successfully."
+                  : "Complete: step budget exhausted."
+                : "Active"}
+            </p>
           </div>
 
           <div className="mt-5 rounded-3xl border border-white/10 bg-white/5 p-4">
             <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Controls</p>
             <div className="mt-4 flex flex-col items-center gap-2">
-              <ArrowButton disabled={busy} onClick={() => step({ type: "move", direction: "up" })}>
+              <ArrowButton disabled={busy || episodeDone} onClick={() => step({ type: "move", direction: "up" })}>
                 Up
               </ArrowButton>
               <div className="flex gap-2">
-                <ArrowButton disabled={busy} onClick={() => step({ type: "move", direction: "left" })}>
+                <ArrowButton disabled={busy || episodeDone} onClick={() => step({ type: "move", direction: "left" })}>
                   Left
                 </ArrowButton>
-                <ArrowButton disabled={busy} onClick={() => step({ type: "move", direction: "down" })}>
+                <ArrowButton disabled={busy || episodeDone} onClick={() => step({ type: "move", direction: "down" })}>
                   Down
                 </ArrowButton>
-                <ArrowButton disabled={busy} onClick={() => step({ type: "move", direction: "right" })}>
+                <ArrowButton disabled={busy || episodeDone} onClick={() => step({ type: "move", direction: "right" })}>
                   Right
                 </ArrowButton>
               </div>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
-              <ActionButton disabled={busy} onClick={() => step({ type: "scan_parking" })}>
+              <ActionButton disabled={busy || episodeDone} onClick={() => step({ type: "scan_parking" })}>
                 Scan
               </ActionButton>
-              <ActionButton disabled={busy} onClick={() => step({ type: "reserve_spot" })}>
+              <ActionButton disabled={busy || episodeDone} onClick={() => step({ type: "reserve_spot" })}>
                 Reserve
               </ActionButton>
-              <ActionButton disabled={busy} onClick={() => step({ type: "cancel_reservation" })}>
+              <ActionButton disabled={busy || episodeDone} onClick={() => step({ type: "cancel_reservation" })}>
                 Cancel
               </ActionButton>
-              <ActionButton disabled={busy} onClick={() => step({ type: "wait" })}>
+              <ActionButton disabled={busy || episodeDone} onClick={() => step({ type: "wait" })}>
                 Wait
               </ActionButton>
             </div>
