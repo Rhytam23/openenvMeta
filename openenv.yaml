@@ -1,0 +1,6 @@
+name: SmartParking
+version: "1.0.0"
+description: "A smart urban parking simulation environment for OpenEnv."
+entry_point: "env.core:SmartParkingEnv"
+action: "env.models:Action"
+observation: "env.models:Observation"
