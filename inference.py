@@ -1,0 +1,57 @@
+from __future__ import annotations
+
+from typing import Dict
+
+from tasks.task_easy import TaskEasy
+from tasks.task_hard import TaskHard
+from tasks.task_medium import TaskMedium
+
+
+def next_move(position: tuple[int, int], target: tuple[int, int]) -> Dict[str, str]:
+    px, py = position
+    tx, ty = target
+    if px < tx:
+        return {"type": "move", "direction": "right"}
+    if px > tx:
+        return {"type": "move", "direction": "left"}
+    if py < ty:
+        return {"type": "move", "direction": "up"}
+    if py > ty:
+        return {"type": "move", "direction": "down"}
+    return {"type": "wait"}
+
+
+def solve(task) -> float:
+    task.reset()
+    env = task.env
+    env.step({"type": "scan_parking"})
+
+    while not env.is_parked and env.steps_elapsed < env.max_steps:
+        if env.reservation is None:
+            env.step({"type": "reserve_spot"})
+            if env.reservation is None:
+                action = next_move(env.agent_pos, task.definition.target_spot)
+                env.step(action)
+                continue
+        action = next_move(env.agent_pos, task.definition.target_spot)
+        env.step(action)
+        if action["type"] == "wait":
+            break
+
+    return env.grade()
+
+
+def main() -> None:
+    scores = {
+        "easy": solve(TaskEasy()),
+        "medium": solve(TaskMedium()),
+        "hard": solve(TaskHard()),
+    }
+    for task_name, score in scores.items():
+        print(f"{task_name}: {score:.2f}")
+    average = sum(scores.values()) / len(scores)
+    print(f"average: {average:.2f}")
+
+
+if __name__ == "__main__":
+    main()
