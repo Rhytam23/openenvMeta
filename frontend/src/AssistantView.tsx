@@ -190,7 +190,7 @@ export function AssistantView() {
                 >
                   <div className="text-sm font-semibold text-white">{preset.label}</div>
                   <div className="mt-1 text-xs uppercase tracking-[0.25em] text-cyan-200">
-                    {preset.destination} · {preset.mode} · {preset.preference}
+                    {preset.destination} | {preset.mode} | {preset.preference}
                   </div>
                   <div className="mt-2 text-sm leading-5 text-slate-300">{preset.description}</div>
                 </button>
@@ -221,6 +221,9 @@ export function AssistantView() {
                   <InfoBadge label="Origin" value={formatPos(assistant.origin)} />
                   <InfoBadge label="Destination" value={formatPos(assistant.destination_position)} />
                   <InfoBadge label="Strategy" value={assistant.preference} />
+                </div>
+                <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-slate-300">
+                  Selected area: {selectedDestination?.label ?? assistant.destination_label}
                 </div>
               </div>
             ) : (
@@ -558,10 +561,10 @@ function HistoryRow({ item }: { item: AssistantHistoryEntry }) {
         </span>
       </div>
       <div className="mt-2 text-xs uppercase tracking-[0.28em] text-slate-400">
-        {item.mode} · {item.searched_at ? new Date(item.searched_at).toLocaleTimeString() : "--"}
+        {item.mode} | {item.searched_at ? new Date(item.searched_at).toLocaleTimeString() : "--"}
       </div>
       <div className="mt-2 text-sm text-slate-300">
-        Best: {item.best_lot ?? "n/a"} · Score {item.score.toFixed(2)}
+        Best: {item.best_lot ?? "n/a"} | Score {item.score.toFixed(2)}
       </div>
     </div>
   );
@@ -593,7 +596,7 @@ function LotMap({
           <div className="text-xs uppercase tracking-[0.3em] text-slate-400">Origin to destination parking view</div>
         </div>
         <div className="text-xs text-slate-400">
-          {originLabel} → {destinationLabel}
+          {originLabel} {"->"} {destinationLabel}
         </div>
       </div>
       <div className="relative h-[360px] w-full bg-[radial-gradient(circle_at_center,_rgba(34,211,238,0.12),_transparent_42%),linear-gradient(135deg,_rgba(8,16,33,0.9),_rgba(10,14,28,1))]">
