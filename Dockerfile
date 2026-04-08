@@ -1,35 +1,20 @@
-FROM python:3.10-slim
+FROM node:20-alpine AS frontend-build
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+COPY frontend/tsconfig*.json ./
+COPY frontend/vite.config.ts ./
+COPY frontend/index.html ./
+COPY frontend/src ./src
+RUN npm run build
 
-# Set environment variables
+FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    HF_HOME=/tmp \
-    PORT=7860
-
+    PORT=8000
 WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install uv for fast dependency management
-RUN pip install --no-cache-dir uv
-
-# Copy project files
 COPY . .
-
-# Install project dependencies
-RUN uv pip install --system -e .
-
-# Make entrypoint script executable
-RUN chmod +x entrypoint.sh
-
-# Expose port 7860 (HuggingFace default)
-EXPOSE 7860
-
-# Metadata tag
+COPY --from=frontend-build /app/frontend/dist ./frontend/dist
+RUN chmod +x entrypoint.sh && pip install --no-cache-dir -e .
+EXPOSE 8000
 LABEL org.openenv.tags="openenv"
-
-# Run the OpenEnv server via entrypoint
 ENTRYPOINT ["./entrypoint.sh"]

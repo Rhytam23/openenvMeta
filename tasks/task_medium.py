@@ -1,26 +1,25 @@
-from env.core import SmartParkingEnv
+from __future__ import annotations
+
+from env.core import SmartParkingEnv, TASK_LIBRARY
+
 
 class TaskMedium:
-    """
-    Task 2 (Medium): Reserve a parking spot before reaching it.
-    - Spots can be taken by others.
-    """
-    def __init__(self):
-        self.seed = 100
-        self.env = SmartParkingEnv(grid_size=10, num_spots=15, max_steps=50)
-        
+    def __init__(self) -> None:
+        self.id = "medium"
+        self.definition = TASK_LIBRARY[self.id]
+        self.seed = self.definition.seed
+        self.env = SmartParkingEnv()
+        self.optimal_steps = 6
+
     def reset(self):
-        obs = self.env.reset(seed=self.seed, random_start=True)
-        return obs
+        self.env.configure_task(self.id, self.get_grader())
+        return self.env.reset()
 
     def get_grader(self):
-        """Returns deterministic grader function."""
-        def grader(successful_reservation: bool, reached_reserved_spot: bool) -> float:
-            score = 0.0
-            if successful_reservation:
-                score += 0.5
-            if reached_reserved_spot:
-                score += 0.5
-            return score
-            
+        def grader(env: SmartParkingEnv) -> float:
+            reserve_score = 0.35 if env.metrics.reserved_spot == self.definition.target_spot else 0.0
+            park_score = 0.45 if env.metrics.parked_spot == self.definition.target_spot else 0.0
+            efficiency = 0.2 * min(1.0, self.optimal_steps / max(self.optimal_steps, env.steps_elapsed or 1))
+            return reserve_score + park_score + efficiency
+
         return grader
