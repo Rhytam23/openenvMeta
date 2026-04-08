@@ -91,3 +91,40 @@ class FullState(BaseModel):
     objective: str
     score: float = Field(ge=0.0, le=1.0)
     metrics: EpisodeMetrics
+
+
+class ParkingSearchRequest(BaseModel):
+    destination: str
+    mode: str = "drive"
+
+
+class ParkingLot(BaseModel):
+    id: str
+    name: str
+    address: str
+    position: Tuple[float, float]
+    total_spots: int
+    available_spots: int
+    hourly_rate: float
+    walk_minutes: int
+    drive_minutes: int
+    confidence: float = Field(ge=0.0, le=1.0)
+    reservation_supported: bool = False
+
+
+class ParkingRecommendation(BaseModel):
+    lot: ParkingLot
+    score: float = Field(ge=0.0, le=1.0)
+    reason: str
+    tradeoff: str
+
+
+class AssistantState(BaseModel):
+    destination: str
+    destination_label: str
+    travel_mode: str
+    origin: Tuple[float, float]
+    total_lots: int
+    open_lots: int
+    best_option: Optional[ParkingRecommendation] = None
+    recommendations: List[ParkingRecommendation]

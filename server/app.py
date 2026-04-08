@@ -13,8 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from openenv.core.env_server import create_fastapi_app
 from pydantic import BaseModel
+from openenv.core.env_server import create_fastapi_app
+from parking_env.assistant import DESTINATIONS, build_assistant_state
 from parking_env.core import SmartParkingEnv
 from parking_env.models import Action, Observation
 from tasks.task_easy import TaskEasy
@@ -30,10 +31,17 @@ TASKS = {
 _task_instance = TaskEasy()
 _env_instance = _task_instance.env
 _task_instance.reset()
+_assistant_state = build_assistant_state("downtown")
 
 
 class ResetRequest(BaseModel):
     task: str = "easy"
+
+
+class AssistantSearchRequest(BaseModel):
+    destination: str = "downtown"
+    mode: str = "drive"
+    origin: tuple[float, float] | None = None
 
 
 def env_factory():
@@ -89,6 +97,33 @@ async def post_step(action: Action):
         "info": info,
         "state": _env_instance.state(),
     }
+
+
+@app.get("/assistant/destinations")
+async def get_destinations():
+    return [
+        {"id": key, "label": label, "position": coords}
+        for key, (label, coords) in DESTINATIONS.items()
+    ]
+
+
+@app.get("/assistant/state")
+async def get_assistant_state():
+    return _assistant_state.model_dump()
+
+
+@app.post("/assistant/search")
+async def search_assistant(req: AssistantSearchRequest):
+    global _assistant_state
+    _assistant_state = build_assistant_state(req.destination, req.mode, req.origin, refresh=False)
+    return _assistant_state.model_dump()
+
+
+@app.post("/assistant/refresh")
+async def refresh_assistant(req: AssistantSearchRequest):
+    global _assistant_state
+    _assistant_state = build_assistant_state(req.destination, req.mode, req.origin, refresh=True)
+    return _assistant_state.model_dump()
 
 
 dist_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
