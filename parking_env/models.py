@@ -26,6 +26,13 @@ class Action(BaseModel):
     direction: Optional[Direction] = None
 
 
+class TripPreference(str, Enum):
+    BALANCED = "balanced"
+    CHEAPEST = "cheapest"
+    CLOSEST = "closest"
+    RESERVE = "reserve"
+
+
 class ParkingSpotStatus(str, Enum):
     AVAILABLE = "available"
     OCCUPIED = "occupied"
@@ -117,14 +124,50 @@ class ParkingRecommendation(BaseModel):
     score: float = Field(ge=0.0, le=1.0)
     reason: str
     tradeoff: str
+    distance_to_destination: float = Field(ge=0.0)
+    estimated_total_minutes: int = Field(ge=0)
+
+
+class AssistantPreset(BaseModel):
+    id: str
+    label: str
+    destination: str
+    mode: str
+    preference: TripPreference
+    description: str
+
+
+class AssistantSearchRequest(BaseModel):
+    destination: str
+    mode: str = "drive"
+    preference: TripPreference = TripPreference.BALANCED
+    origin: Tuple[float, float] | None = None
+
+
+class AssistantHistoryEntry(BaseModel):
+    destination: str
+    destination_label: str
+    mode: str
+    preference: TripPreference
+    best_lot: Optional[str] = None
+    score: float = Field(ge=0.0, le=1.0)
+    searched_at: str
 
 
 class AssistantState(BaseModel):
     destination: str
     destination_label: str
+    destination_position: Tuple[float, float]
     travel_mode: str
+    preference: TripPreference
     origin: Tuple[float, float]
     total_lots: int
     open_lots: int
+    data_source: str
+    last_updated_at: str
+    freshness_minutes: int
+    route_summary: str
+    presets: List[AssistantPreset]
+    recent_searches: List[AssistantHistoryEntry]
     best_option: Optional[ParkingRecommendation] = None
     recommendations: List[ParkingRecommendation]

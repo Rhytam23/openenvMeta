@@ -1,6 +1,7 @@
 export type SpotStatus = "available" | "occupied" | "reserved";
 export type TaskId = "easy" | "medium" | "hard";
 export type Direction = "up" | "down" | "left" | "right";
+export type TripPreference = "balanced" | "cheapest" | "closest" | "reserve";
 
 export interface ParkingSpot {
   position: [number, number];
@@ -66,17 +67,46 @@ export interface Recommendation {
   score: number;
   reason: string;
   tradeoff: string;
+  distance_to_destination: number;
+  estimated_total_minutes: number;
 }
 
 export interface AssistantState {
   destination: string;
   destination_label: string;
+  destination_position: [number, number];
   travel_mode: string;
+  preference: TripPreference;
   origin: [number, number];
   total_lots: number;
   open_lots: number;
+  data_source: string;
+  last_updated_at: string;
+  freshness_minutes: number;
+  route_summary: string;
+  presets: AssistantPreset[];
+  recent_searches: AssistantHistoryEntry[];
   best_option: Recommendation | null;
   recommendations: Recommendation[];
+}
+
+export interface AssistantPreset {
+  id: string;
+  label: string;
+  destination: string;
+  mode: string;
+  preference: TripPreference;
+  description: string;
+}
+
+export interface AssistantHistoryEntry {
+  destination: string;
+  destination_label: string;
+  mode: string;
+  preference: TripPreference;
+  best_lot: string | null;
+  score: number;
+  searched_at: string;
 }
 
 export const manhattan = (a: [number, number], b: [number, number]) =>
