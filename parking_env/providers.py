@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from random import Random
-from typing import List, Protocol
+from typing import Any, List, Protocol
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from .models import ParkingLot
 
@@ -14,6 +19,7 @@ class ParkingSnapshot:
     last_updated_at: str
     freshness_minutes: int
     lots: List[ParkingLot]
+    live_data_enabled: bool
 
 
 class ParkingDataProvider(Protocol):
@@ -34,11 +40,104 @@ class DemoParkingProvider:
             last_updated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
             freshness_minutes=5 if refresh else 15,
             lots=lots,
+            live_data_enabled=False,
+        )
+
+
+class LiveParkingProvider:
+    def __init__(self, feed_url: str, api_key: str | None = None, provider_name: str = "Live feed"):
+        self.feed_url = feed_url
+        self.api_key = api_key
+        self.provider_name = provider_name
+
+    def snapshot(self, destination: str, mode: str, preference: str, refresh: bool = False) -> ParkingSnapshot:
+        url = self.feed_url
+        if "{destination}" in url:
+            url = url.format(destination=destination, mode=mode, preference=preference, refresh=str(refresh).lower())
+        if "?" not in url:
+            url = f"{url}?{urlencode({'destination': destination, 'mode': mode, 'preference': preference, 'refresh': str(refresh).lower()})}"
+        payload = _fetch_json(url, self.api_key)
+        lots = _lots_from_payload(payload)
+        return ParkingSnapshot(
+            source_name=self.provider_name,
+            last_updated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            freshness_minutes=1 if refresh else 3,
+            lots=lots,
+            live_data_enabled=True,
         )
 
 
 def get_provider() -> ParkingDataProvider:
+    feed_url = os.environ.get("PARKING_LIVE_FEED_URL", "").strip()
+    if feed_url:
+        return LiveParkingProvider(
+            feed_url=feed_url,
+            api_key=os.environ.get("PARKING_LIVE_API_KEY") or None,
+            provider_name=os.environ.get("PARKING_LIVE_PROVIDER_NAME", "Live feed"),
+        )
     return DemoParkingProvider()
+
+
+def _fetch_json(url: str, api_key: str | None = None) -> Any:
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": os.environ.get("PARKING_HTTP_USER_AGENT", "OpenEnvParking/1.0"),
+    }
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    request = Request(url, headers=headers)
+    with urlopen(request, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _lots_from_payload(payload: Any) -> List[ParkingLot]:
+    raw_lots = payload.get("lots") if isinstance(payload, dict) else payload
+    if not isinstance(raw_lots, list):
+        raise ValueError("Parking feed must return a list of lots or an object with a 'lots' array.")
+    lots: List[ParkingLot] = []
+    for item in raw_lots:
+        if not isinstance(item, dict):
+            continue
+        position = _extract_position(item)
+        if position is None:
+            continue
+        lots.append(
+            ParkingLot(
+                id=str(item.get("id") or item.get("name") or len(lots)),
+                name=str(item.get("name") or "Lot"),
+                address=str(item.get("address") or item.get("formatted_address") or "Unknown"),
+                position=position,
+                total_spots=int(item.get("total_spots") or item.get("capacity") or 0),
+                available_spots=int(item.get("available_spots") or item.get("available") or 0),
+                hourly_rate=float(item.get("hourly_rate") or item.get("price_per_hour") or 0.0),
+                walk_minutes=int(item.get("walk_minutes") or item.get("walk") or 0),
+                drive_minutes=int(item.get("drive_minutes") or item.get("drive") or 0),
+                confidence=float(item.get("confidence") or 0.75),
+                reservation_supported=bool(item.get("reservation_supported") or item.get("reservable") or item.get("bookable")),
+                map_url=item.get("map_url"),
+                booking_url=item.get("booking_url") or item.get("reservation_url"),
+            )
+        )
+    if not lots:
+        raise ValueError("Parking feed did not return any usable lots.")
+    return lots
+
+
+def _extract_position(item: dict[str, Any]) -> tuple[float, float] | None:
+    raw_position = item.get("position") or item.get("coords")
+    if isinstance(raw_position, (list, tuple)) and len(raw_position) >= 2:
+        try:
+            return float(raw_position[0]), float(raw_position[1])
+        except (TypeError, ValueError):
+            return None
+    lat = item.get("lat")
+    lng = item.get("lng")
+    if lat is None or lng is None:
+        return None
+    try:
+        return float(lat), float(lng)
+    except (TypeError, ValueError):
+        return None
 
 
 def _base_lots() -> List[ParkingLot]:

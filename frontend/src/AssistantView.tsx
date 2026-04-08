@@ -40,6 +40,7 @@ export function AssistantView() {
   const [assistant, setAssistant] = useState<AssistantState | null>(null);
   const [destinations, setDestinations] = useState<DestinationOption[]>([]);
   const [destination, setDestination] = useState("downtown");
+  const [destinationQuery, setDestinationQuery] = useState("");
   const [mode, setMode] = useState("drive");
   const [preference, setPreference] = useState<TripPreference>("balanced");
   const [originOverride, setOriginOverride] = useState<[number, number] | null>(null);
@@ -83,6 +84,7 @@ export function AssistantView() {
       setAssistant(stateRes.data);
       if (!silent) {
         setDestination(stateRes.data.destination);
+        setDestinationQuery("");
         setMode(stateRes.data.travel_mode);
         setPreference(stateRes.data.preference);
         if (!originOverride) setOriginOverride(stateRes.data.origin);
@@ -106,6 +108,7 @@ export function AssistantView() {
     const origin = originOverride ?? assistant?.origin ?? undefined;
     const payload = {
       destination: overrides?.destination ?? destination,
+      destination_query: destinationQuery.trim() || null,
       mode: overrides?.mode ?? mode,
       preference: overrides?.preference ?? preference,
       origin,
@@ -135,6 +138,7 @@ export function AssistantView() {
 
   async function applyPreset(preset: AssistantPreset) {
     setDestination(preset.destination);
+    setDestinationQuery("");
     setMode(preset.mode);
     setPreference(preset.preference);
     await search(false, { destination: preset.destination, mode: preset.mode, preference: preset.preference });
@@ -148,6 +152,10 @@ export function AssistantView() {
   }
 
   function openLotDirections(lot: ParkingLot) {
+    if (lot.map_url) {
+      window.open(lot.map_url, "_blank", "noopener,noreferrer");
+      return;
+    }
     openDirectionsTo(lot.position);
   }
 
@@ -196,6 +204,7 @@ export function AssistantView() {
 
   async function applyFavorite(item: FavoriteTrip) {
     setDestination(item.destination);
+    setDestinationQuery("");
     setMode(item.mode);
     setPreference(item.preference);
     await search(false, { destination: item.destination, mode: item.mode, preference: item.preference });
@@ -219,6 +228,15 @@ export function AssistantView() {
           </div>
           <div className="grid gap-2 sm:min-w-[24rem] sm:grid-cols-2">
             <SelectField label="Destination" value={destination} onChange={setDestination} options={destinations} />
+            <label className="block">
+              <span className="mb-1 block text-xs uppercase tracking-[0.3em] text-slate-400">Search place</span>
+              <input
+                value={destinationQuery}
+                onChange={(event) => setDestinationQuery(event.target.value)}
+                placeholder="Type any address, venue, or landmark"
+                className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300"
+              />
+            </label>
             <SelectChoice
               label="Mode"
               value={mode}

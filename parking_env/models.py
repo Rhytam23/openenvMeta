@@ -103,6 +103,7 @@ class FullState(BaseModel):
 class ParkingSearchRequest(BaseModel):
     destination: str
     mode: str = "drive"
+    destination_query: Optional[str] = None
 
 
 class ParkingLot(BaseModel):
@@ -163,15 +164,20 @@ class AssistantState(BaseModel):
     destination: str
     destination_label: str
     destination_position: Tuple[float, float]
+    destination_source: str
+    custom_destination: bool
     travel_mode: str
     preference: TripPreference
     origin: Tuple[float, float]
     total_lots: int
     open_lots: int
     data_source: str
+    provider_name: str
     last_updated_at: str
     freshness_minutes: int
+    route_engine: str
     route_summary: str
+    live_data_enabled: bool
     presets: List[AssistantPreset]
     recent_searches: List[AssistantHistoryEntry]
     best_option: Optional[ParkingRecommendation] = None

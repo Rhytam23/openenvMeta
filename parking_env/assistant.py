@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from typing import Dict, List, Tuple
 
 from .models import (
@@ -11,6 +10,7 @@ from .models import (
     ParkingRecommendation,
     TripPreference,
 )
+from .geo import estimate_route_metrics, geocode_destination, haversine_km
 from .providers import get_provider
 
 
@@ -72,16 +72,23 @@ def _destination(destination: str) -> Tuple[str, Tuple[float, float]]:
     return DESTINATIONS.get(destination.lower(), ("Downtown Core", DESTINATIONS["downtown"][1]))
 
 
-def _distance(a: Tuple[float, float], b: Tuple[float, float]) -> float:
-    lat1, lng1 = a
-    lat2, lng2 = b
-    r = 6371.0
-    phi1 = math.radians(lat1)
-    phi2 = math.radians(lat2)
-    d_phi = math.radians(lat2 - lat1)
-    d_lambda = math.radians(lng2 - lng1)
-    h = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
-    return 2 * r * math.atan2(math.sqrt(h), math.sqrt(1 - h))
+def _resolve_destination(destination: str, destination_query: str | None = None) -> Tuple[str, Tuple[float, float], str, bool]:
+    query = (destination_query or destination or "").strip()
+    if query:
+        try:
+            label, coords, source = geocode_destination(query)
+            return label, coords, source, True
+        except Exception:
+            pass
+    if destination.lower() in DESTINATIONS:
+        label, coords = DESTINATIONS[destination.lower()]
+        return label, coords, "preset", False
+    try:
+        label, coords, source = geocode_destination(destination)
+        return label, coords, source, True
+    except Exception:
+        label, coords = DESTINATIONS["downtown"]
+        return label, coords, "fallback", False
 
 
 def _score_lot(
@@ -92,12 +99,15 @@ def _score_lot(
     preference: TripPreference,
 ) -> ParkingRecommendation:
     availability = lot.available_spots / max(1, lot.total_spots)
-    distance_to_dest = _distance(lot.position, destination_point)
-    distance_from_origin = _distance(origin, lot.position)
+    origin_to_lot = estimate_route_metrics(origin, lot.position, "driving")
+    lot_to_destination = estimate_route_metrics(lot.position, destination_point, "walking")
+    distance_to_dest = lot_to_destination.distance_km
+    distance_from_origin = origin_to_lot.distance_km
     travel_distance = distance_from_origin + distance_to_dest
     commute_pressure = distance_from_origin
     walk_penalty = max(0, lot.walk_minutes - 3) * (0.03 if mode == "walk" else 0.02)
-    drive_penalty = lot.drive_minutes * (0.02 if mode == "drive" else 0.01)
+    drive_minutes = max(lot.drive_minutes, round(origin_to_lot.duration_min))
+    drive_penalty = drive_minutes * (0.02 if mode == "drive" else 0.01)
     price_penalty = min(lot.hourly_rate / 20.0, 0.2)
     scarcity_penalty = 0.25 if lot.available_spots <= 10 else 0.0
     confidence_bonus = lot.confidence * 0.18
@@ -155,7 +165,7 @@ def _score_lot(
         distance_from_origin=round(distance_from_origin, 3),
         travel_distance=round(travel_distance, 3),
         estimated_drive_minutes=drive_minutes,
-        estimated_total_minutes=estimated_total_minutes,
+        estimated_total_minutes=drive_minutes + lot.walk_minutes,
     )
 
 
@@ -196,14 +206,16 @@ def build_assistant_state(
     origin: Tuple[float, float] | None = None,
     refresh: bool = False,
     preference: TripPreference = TripPreference.BALANCED,
+    destination_query: str | None = None,
 ) -> AssistantState:
     if not isinstance(preference, TripPreference):
         preference = TripPreference(preference)
-    destination_label, destination_point = _destination(destination)
+    destination_label, destination_point, destination_source, custom_destination = _resolve_destination(destination, destination_query)
     origin = origin or (40.7138, -74.0065)
     provider = get_provider()
     snapshot = provider.snapshot(destination, mode, preference.value, refresh=refresh)
     lots = snapshot.lots
+    route_probe = estimate_route_metrics(origin, destination_point, "driving" if mode == "drive" else "walking")
 
     recommendations = sorted(
         [_score_lot(lot, origin, destination_point, mode, preference) for lot in lots],
@@ -216,15 +228,20 @@ def build_assistant_state(
         destination=destination.lower(),
         destination_label=destination_label,
         destination_position=destination_point,
+        destination_source=destination_source,
+        custom_destination=custom_destination,
         travel_mode=mode,
         preference=preference,
         origin=origin,
         total_lots=len(lots),
         open_lots=open_lots,
         data_source=snapshot.source_name,
+        provider_name=snapshot.source_name,
         last_updated_at=snapshot.last_updated_at,
         freshness_minutes=snapshot.freshness_minutes,
+        route_engine=route_probe.source.upper(),
         route_summary=_route_summary(destination_label, preference, mode),
+        live_data_enabled=snapshot.live_data_enabled,
         presets=PRESETS,
         recent_searches=get_recent_searches(),
         best_option=best_option,
