@@ -6,6 +6,7 @@ import {
   ArrowRight,
   CheckCircle2,
   Clock3,
+  ExternalLink,
   History,
   MapPin,
   Navigation,
@@ -105,16 +106,19 @@ export function AssistantView() {
 
   const selectedDestination = destinations.find((item) => item.id === destination) ?? null;
 
-  const mapPoints = useMemo(() => {
-    const lots = recommendations.map((item) => item.lot);
-    return buildMapPoints(assistant?.origin, assistant?.destination_position, lots, recommended?.lot ?? null);
-  }, [assistant?.destination_position, assistant?.origin, recommendations, recommended?.lot]);
-
   async function applyPreset(preset: AssistantPreset) {
     setDestination(preset.destination);
     setMode(preset.mode);
     setPreference(preset.preference);
     await search(false, { destination: preset.destination, mode: preset.mode, preference: preset.preference });
+  }
+
+  function openDirections() {
+    if (!assistant) return;
+    const origin = `${assistant.origin[0]},${assistant.origin[1]}`;
+    const destinationCoords = `${assistant.destination_position[0]},${assistant.destination_position[1]}`;
+    const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destinationCoords)}&travelmode=${assistant.travel_mode === "walk" ? "walking" : "driving"}`;
+    window.open(mapsUrl, "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -207,14 +211,28 @@ export function AssistantView() {
         </div>
 
         <div className="mt-5 grid gap-4 xl:grid-cols-[1.02fr_0.98fr]">
-          <Panel title="Route map" icon={<Navigation className="h-4 w-4" />}>
+          <Panel
+            title="Live map"
+            icon={<Navigation className="h-4 w-4" />}
+            action={
+              assistant ? (
+                <button
+                  onClick={openDirections}
+                  className="inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1.5 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/20"
+                >
+                  Open directions
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </button>
+              ) : null
+            }
+          >
             {assistant ? (
               <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/60 p-3">
-                <LotMap
-                  points={mapPoints}
+                <RealMap
+                  origin={assistant.origin}
+                  destination={assistant.destination_position}
                   lots={recommendations.map((item) => item.lot)}
                   bestLot={recommended?.lot ?? null}
-                  originLabel={formatPos(assistant.origin)}
                   destinationLabel={assistant.destination_label}
                 />
                 <div className="mt-4 grid gap-2 sm:grid-cols-3">
@@ -341,50 +359,6 @@ export function AssistantView() {
   );
 }
 
-function buildMapPoints(
-  origin: [number, number] | undefined,
-  destination: [number, number] | undefined,
-  lots: ParkingLot[],
-  bestLot: ParkingLot | null,
-) {
-  const points = [origin, destination, ...lots.map((lot) => lot.position)].filter(Boolean) as Array<[number, number]>;
-  if (points.length === 0) return [] as Array<{ x: number; y: number; label: string; type: string; id: string; lot?: ParkingLot }>;
-  const lats = points.map((point) => point[0]);
-  const lngs = points.map((point) => point[1]);
-  const minLat = Math.min(...lats);
-  const maxLat = Math.max(...lats);
-  const minLng = Math.min(...lngs);
-  const maxLng = Math.max(...lngs);
-  const padLat = Math.max(0.002, (maxLat - minLat) * 0.18);
-  const padLng = Math.max(0.002, (maxLng - minLng) * 0.18);
-  const width = 1000;
-  const height = 560;
-
-  const project = (point: [number, number]) => {
-    const x = ((point[1] - (minLng - padLng)) / ((maxLng - minLng) + padLng * 2 || 1)) * width;
-    const y = height - ((point[0] - (minLat - padLat)) / ((maxLat - minLat) + padLat * 2 || 1)) * height;
-    return { x, y };
-  };
-
-  const mapped = [
-    origin ? { ...project(origin), label: "You", type: "origin", id: "origin" } : null,
-    destination ? { ...project(destination), label: "Destination", type: "destination", id: "destination" } : null,
-    ...lots.map((lot) => {
-      const isBest = bestLot?.id === lot.id;
-      const point = project(lot.position);
-      return {
-        ...point,
-        label: lot.name,
-        type: isBest ? "best-lot" : lot.reservation_supported ? "reserve" : "lot",
-        id: lot.id,
-        lot,
-      };
-    }),
-  ].filter(Boolean);
-
-  return mapped as Array<{ x: number; y: number; label: string; type: string; id: string; lot?: ParkingLot }>;
-}
-
 function SelectField({
   label,
   value,
@@ -468,17 +442,22 @@ function Metric({
 function Panel({
   title,
   icon,
+  action,
   children,
 }: {
   title: string;
   icon: ReactNode;
+  action?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-4">
-      <div className="flex items-center gap-2 text-xs uppercase tracking-[0.35em] text-slate-400">
-        {icon}
-        {title}
+      <div className="flex items-center justify-between gap-3 text-xs uppercase tracking-[0.35em] text-slate-400">
+        <div className="flex items-center gap-2">
+          {icon}
+          {title}
+        </div>
+        {action}
       </div>
       <div className="mt-4">{children}</div>
     </div>
@@ -570,86 +549,87 @@ function HistoryRow({ item }: { item: AssistantHistoryEntry }) {
   );
 }
 
-function LotMap({
-  points,
+function RealMap({
+  origin,
+  destination,
   lots,
   bestLot,
-  originLabel,
   destinationLabel,
 }: {
-  points: Array<{ x: number; y: number; label: string; type: string; id: string; lot?: ParkingLot }>;
+  origin: [number, number];
+  destination: [number, number];
   lots: ParkingLot[];
   bestLot: ParkingLot | null;
-  originLabel: string;
   destinationLabel: string;
 }) {
-  const origin = points.find((point) => point.type === "origin");
-  const destination = points.find((point) => point.type === "destination");
-  const best = points.find((point) => point.type === "best-lot");
-  const lotPoints = points.filter((point) => point.lot);
+  const center = destination ?? origin;
+  const zoom = 15;
+  const tiles = useMemo(() => buildTiles(center, zoom, 3), [center, zoom]);
+  const markers = useMemo(() => buildMarkers(origin, destination, lots, bestLot, zoom), [origin, destination, lots, bestLot]);
 
   return (
-    <div className="overflow-hidden rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,_rgba(12,18,32,0.95),_rgba(7,11,22,0.98))]">
+    <div className="overflow-hidden rounded-[1.5rem] border border-white/10 bg-slate-950/90">
       <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
         <div>
-          <div className="text-sm font-semibold text-white">Arrival map</div>
-          <div className="text-xs uppercase tracking-[0.3em] text-slate-400">Origin to destination parking view</div>
+          <div className="text-sm font-semibold text-white">Live map</div>
+          <div className="text-xs uppercase tracking-[0.3em] text-slate-400">OpenStreetMap tiles and real coordinates</div>
         </div>
-        <div className="text-xs text-slate-400">
-          {originLabel} {"->"} {destinationLabel}
-        </div>
+        <div className="text-xs text-slate-400">{destinationLabel}</div>
       </div>
-      <div className="relative h-[360px] w-full bg-[radial-gradient(circle_at_center,_rgba(34,211,238,0.12),_transparent_42%),linear-gradient(135deg,_rgba(8,16,33,0.9),_rgba(10,14,28,1))]">
-        <svg viewBox="0 0 1000 560" className="absolute inset-0 h-full w-full">
-          {origin && destination && (
-            <line x1={origin.x} y1={origin.y} x2={destination.x} y2={destination.y} stroke="rgba(34,211,238,0.55)" strokeWidth="4" strokeDasharray="12 10" />
-          )}
-          {origin && best && (
-            <line x1={origin.x} y1={origin.y} x2={best.x} y2={best.y} stroke="rgba(16,185,129,0.75)" strokeWidth="5" />
-          )}
-          {lotPoints.map((point) => (
-            <g key={point.id}>
-              <circle
-                cx={point.x}
-                cy={point.y}
-                r={point.type === "best-lot" ? 20 : point.type === "origin" || point.type === "destination" ? 16 : 14}
-                fill={
-                  point.type === "origin"
-                    ? "rgba(56,189,248,0.95)"
-                    : point.type === "destination"
-                      ? "rgba(251,191,36,0.95)"
-                      : point.type === "best-lot"
-                        ? "rgba(16,185,129,0.95)"
-                        : point.lot?.reservation_supported
-                          ? "rgba(167,139,250,0.88)"
-                          : "rgba(244,63,94,0.82)"
-                }
-                opacity={point.type === "best-lot" ? 1 : 0.9}
-              />
-              <text
-                x={point.x}
-                y={point.y + 4}
-                textAnchor="middle"
-                fill="#06111f"
-                fontSize="20"
-                fontWeight="700"
-              >
-                {point.type === "origin" ? "You" : point.type === "destination" ? "Go" : point.type === "best-lot" ? "Best" : "P"}
-              </text>
-            </g>
+      <div className="relative h-[360px] overflow-hidden bg-[#0a1020]">
+        <div className="absolute inset-0">
+          {tiles.map((tile) => (
+            <img
+              key={`${tile.x}-${tile.y}-${tile.z}`}
+              src={`https://tile.openstreetmap.org/${tile.z}/${tile.x}/${tile.y}.png`}
+              alt=""
+              className="absolute object-cover opacity-95"
+              style={{ left: `${tile.offsetX}%`, top: `${tile.offsetY}%`, width: "14.2857%", height: "14.2857%" }}
+            />
           ))}
-        </svg>
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(34,211,238,0.1),_transparent_44%)]" />
+          {markers.map((marker) => (
+            <div
+              key={marker.id}
+              className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center ${marker.emphasis ? "z-20" : "z-10"}`}
+              style={{ left: `${marker.left}%`, top: `${marker.top}%` }}
+            >
+              <div
+                className={`flex h-12 w-12 items-center justify-center rounded-full border text-[10px] font-black uppercase tracking-[0.22em] shadow-lg ${
+                  marker.kind === "origin"
+                    ? "border-cyan-200/80 bg-cyan-400 text-slate-950"
+                    : marker.kind === "destination"
+                      ? "border-amber-200/80 bg-amber-300 text-slate-950"
+                      : marker.kind === "best"
+                        ? "border-emerald-200/80 bg-emerald-400 text-slate-950"
+                        : marker.reservation_supported
+                          ? "border-violet-200/70 bg-violet-400 text-slate-950"
+                          : "border-rose-200/70 bg-rose-400 text-slate-950"
+                }`}
+              >
+                {marker.kind === "origin" ? "You" : marker.kind === "destination" ? "Go" : marker.kind === "best" ? "Best" : "P"}
+              </div>
+              <div className="mt-2 max-w-[10rem] rounded-full border border-white/10 bg-slate-950/80 px-2 py-1 text-center text-[10px] text-slate-200">
+                {marker.label}
+              </div>
+            </div>
+          ))}
+        </div>
 
-        <div className="absolute inset-x-4 bottom-4 grid gap-2 md:grid-cols-3">
-          <div className="rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-xs text-slate-300">
+        <div className="absolute left-4 top-4 rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-xs text-slate-300 backdrop-blur">
+          <div className="font-semibold text-white">OSM live tiles</div>
+          <div className="mt-1">Real-world street map</div>
+        </div>
+        <div className="absolute bottom-4 left-4 right-4 grid gap-2 md:grid-cols-3">
+          <div className="rounded-2xl border border-white/10 bg-slate-950/85 px-4 py-3 text-xs text-slate-300 backdrop-blur">
             <div className="font-semibold text-white">Best lot</div>
             <div className="mt-1">{bestLot ? bestLot.name : "n/a"}</div>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-xs text-slate-300">
-            <div className="font-semibold text-white">Available lots</div>
-            <div className="mt-1">{lots.filter((lot) => lot.available_spots > 0).length}</div>
+          <div className="rounded-2xl border border-white/10 bg-slate-950/85 px-4 py-3 text-xs text-slate-300 backdrop-blur">
+            <div className="font-semibold text-white">Parking options</div>
+            <div className="mt-1">{lots.length} lots</div>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-xs text-slate-300">
+          <div className="rounded-2xl border border-white/10 bg-slate-950/85 px-4 py-3 text-xs text-slate-300 backdrop-blur">
             <div className="font-semibold text-white">Reservation support</div>
             <div className="mt-1">{lots.filter((lot) => lot.reservation_supported).length} lots</div>
           </div>
@@ -657,4 +637,74 @@ function LotMap({
       </div>
     </div>
   );
+}
+
+function buildTiles(center: [number, number], zoom: number, radius: number) {
+  const [x, y] = latLngToTile(center[0], center[1], zoom);
+  const tiles: Array<{ x: number; y: number; z: number; offsetX: number; offsetY: number }> = [];
+  for (let dx = -radius; dx <= radius; dx += 1) {
+    for (let dy = -radius; dy <= radius; dy += 1) {
+      tiles.push({
+        x: x + dx,
+        y: y + dy,
+        z: zoom,
+        offsetX: ((dx + radius) / (radius * 2 + 1)) * 100,
+        offsetY: ((dy + radius) / (radius * 2 + 1)) * 100,
+      });
+    }
+  }
+  return tiles;
+}
+
+function buildMarkers(
+  origin: [number, number],
+  destination: [number, number],
+  lots: ParkingLot[],
+  bestLot: ParkingLot | null,
+  zoom: number,
+) {
+  const centerLat = destination[0];
+  const centerLng = destination[1];
+  const centerTile = latLngToPixel(centerLat, centerLng, zoom);
+  const markers = [
+    { id: "origin", kind: "origin", label: "You", coord: origin, reservation_supported: false, emphasis: true },
+    { id: "destination", kind: "destination", label: "Destination", coord: destination, reservation_supported: false, emphasis: true },
+    ...lots.map((lot) => ({
+      id: lot.id,
+      kind: bestLot?.id === lot.id ? "best" : "lot",
+      label: lot.name,
+      coord: lot.position,
+      reservation_supported: lot.reservation_supported,
+      emphasis: bestLot?.id === lot.id,
+    })),
+  ];
+
+  return markers.map((marker) => {
+    const pixel = latLngToPixel(marker.coord[0], marker.coord[1], zoom);
+    return {
+      ...marker,
+      left: 50 + ((pixel.x - centerTile.x) / 768) * 100,
+      top: 50 + ((pixel.y - centerTile.y) / 768) * 100,
+    };
+  });
+}
+
+function latLngToTile(lat: number, lng: number, zoom: number) {
+  const n = 2 ** zoom;
+  const x = Math.floor(((lng + 180) / 360) * n);
+  const latRad = (lat * Math.PI) / 180;
+  const y = Math.floor(
+    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n,
+  );
+  return [x, y] as const;
+}
+
+function latLngToPixel(lat: number, lng: number, zoom: number) {
+  const scale = 256 * 2 ** zoom;
+  const x = ((lng + 180) / 360) * scale;
+  const sinLat = Math.sin((lat * Math.PI) / 180);
+  const y =
+    (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) *
+    scale;
+  return { x, y };
 }
