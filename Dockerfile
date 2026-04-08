@@ -4,6 +4,7 @@ COPY frontend/package*.json ./
 COPY frontend/tsconfig*.json ./
 COPY frontend/vite.config.ts ./
 COPY frontend/index.html ./
+RUN npm ci
 COPY frontend/src ./src
 RUN npm run build
 
