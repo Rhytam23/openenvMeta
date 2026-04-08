@@ -1,6 +1,6 @@
 import sys
-from env.core import SmartParkingEnv
-from env.reward_engine import RewardEngine
+from parking_env.core import SmartParkingEnv
+from parking_env.reward_engine import RewardEngine
 
 def test_reward_engine():
     try:

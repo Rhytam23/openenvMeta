@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 
 import uvicorn
 from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from openenv.core.env_server import create_fastapi_app
 from pydantic import BaseModel
-
-from env.core import SmartParkingEnv
-from env.models import Action, Observation
+from parking_env.core import SmartParkingEnv
+from parking_env.models import Action, Observation
 from tasks.task_easy import TaskEasy
 from tasks.task_hard import TaskHard
 from tasks.task_medium import TaskMedium

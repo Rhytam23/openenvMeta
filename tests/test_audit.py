@@ -1,8 +1,8 @@
 import sys
 import os
 import json
-from env.core import SmartParkingEnv
-from env.models import Action, ActionType, Direction
+from parking_env.core import SmartParkingEnv
+from parking_env.models import Action, ActionType, Direction
 
 def audit():
     print("--- Auditing SmartParkingEnv ---")

@@ -1,6 +1,6 @@
 import json
-from env.core import SmartParkingEnv
-from env.models import ActionType, Direction
+from parking_env.core import SmartParkingEnv
+from parking_env.models import ActionType, Direction
 
 def test_simulation():
     env = SmartParkingEnv(grid_size=10, num_spots=5, max_steps=50)

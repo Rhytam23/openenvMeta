@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from env.core import SmartParkingEnv, TASK_LIBRARY
+from parking_env.core import SmartParkingEnv, TASK_LIBRARY
 
 
 class TaskEasy:
