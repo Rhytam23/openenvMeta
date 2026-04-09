@@ -816,11 +816,13 @@ function RealMap({
   } | null>(null);
   const [viewport, setViewport] = useState({ width: 768, height: 360 });
   const [center, setCenter] = useState<[number, number]>(selectedLot?.position ?? destination);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(15);
   const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     setCenter(selectedLot?.position ?? destination);
+    setPanOffset({ x: 0, y: 0 });
   }, [destination, selectedLot?.position?.[0], selectedLot?.position?.[1]]);
 
   useEffect(() => {
@@ -861,6 +863,12 @@ function RealMap({
     setCenter(next);
   }
 
+  function commitDrag() {
+    if (!dragRef.current) return;
+    updateCenterFromPointer(dragRef.current.pendingX, dragRef.current.pendingY);
+    setPanOffset({ x: 0, y: 0 });
+  }
+
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     if ((event.target as HTMLElement | null)?.closest("button, a")) return;
@@ -886,7 +894,10 @@ function RealMap({
     dragRef.current.frameId = window.requestAnimationFrame(() => {
       if (!dragRef.current) return;
       dragRef.current.frameId = null;
-      updateCenterFromPointer(dragRef.current.pendingX, dragRef.current.pendingY);
+      setPanOffset({
+        x: dragRef.current.pendingX - dragRef.current.startX,
+        y: dragRef.current.pendingY - dragRef.current.startY,
+      });
     });
   }
 
@@ -895,6 +906,7 @@ function RealMap({
       if (dragRef.current.frameId !== null) {
         window.cancelAnimationFrame(dragRef.current.frameId);
       }
+      commitDrag();
       dragRef.current = null;
       setIsDragging(false);
       try {
@@ -907,6 +919,7 @@ function RealMap({
 
   function zoomMap(next: number) {
     setZoom(Math.max(12, Math.min(19, next)));
+    setPanOffset({ x: 0, y: 0 });
   }
 
   function handleWheel(event: React.WheelEvent<HTMLDivElement>) {
@@ -919,6 +932,7 @@ function RealMap({
     onClearSelection();
     setCenter(destination);
     setZoom(15);
+    setPanOffset({ x: 0, y: 0 });
   }
 
   return (
@@ -947,7 +961,10 @@ function RealMap({
         onPointerCancel={stopDragging}
         onWheel={handleWheel}
       >
-        <div className="absolute inset-0 select-none">
+        <div
+          className="absolute inset-0 select-none will-change-transform"
+          style={{ transform: `translate3d(${panOffset.x}px, ${panOffset.y}px, 0)` }}
+        >
           {tiles.map((tile) => (
             <img
               key={`${tile.x}-${tile.y}-${tile.z}`}
