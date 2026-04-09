@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 from typing import Any, Dict, List, Optional
@@ -13,11 +12,7 @@ except Exception:  # pragma: no cover - fallback when the client library is unav
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or ""
-LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME") or ""
-BENCHMARK_TASK = os.getenv("MY_ENV_V4_TASK", "echo")
-BENCHMARK_NAME = os.getenv("MY_ENV_V4_BENCHMARK", "my_env_v4")
 MAX_STEPS = int(os.getenv("MAX_STEPS", "32"))
-USE_BENCHMARK_ENV = os.getenv("USE_BENCHMARK_ENV", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def log_start(task: str, env: str, model: str) -> None:
@@ -205,115 +200,8 @@ def run_local_task(task_name: str, task_factory, client: Optional[OpenAI]) -> No
         log_end(success=success, steps=steps, score=score, rewards=rewards)
 
 
-def _benchmark_action(client: Optional[OpenAI], step: int, last_echoed: str, last_reward: float, history: List[str]) -> str:
-    if client is not None:
-        try:
-            completion = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are interacting with a simple echo environment. "
-                            "Respond with exactly one message string and nothing else."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Step: {step}\n"
-                            f"Last echoed message: {last_echoed!r}\n"
-                            f"Last reward: {last_reward:.2f}\n"
-                            f"Recent history: {history[-4:]}\n"
-                            "Send your next message."
-                        ),
-                    },
-                ],
-                temperature=0.7,
-                max_tokens=150,
-            )
-            text = (completion.choices[0].message.content or "").strip()
-            if text:
-                return text
-        except Exception:
-            pass
-    return "hello"
-
-
-async def run_benchmark_task(client: Optional[OpenAI]) -> bool:
-    try:
-        from my_env_v4 import MyEnvV4Action, MyEnvV4Env  # type: ignore
-    except Exception:
-        return False
-
-    if not USE_BENCHMARK_ENV:
-        return False
-
-    try:
-        env = await MyEnvV4Env.from_docker_image(LOCAL_IMAGE_NAME)
-    except Exception as exc:
-        print(f"[DEBUG] benchmark env startup failed: {exc}", flush=True)
-        return False
-
-    history: List[str] = []
-    rewards: List[float] = []
-    steps_taken = 0
-    score = 0.0
-    success = False
-
-    log_start(task=BENCHMARK_TASK, env=BENCHMARK_NAME, model=MODEL_NAME)
-
-    try:
-        result = await env.reset()
-        last_echoed = getattr(result.observation, "echoed_message", "")
-        last_reward = 0.0
-
-        for step in range(1, MAX_STEPS + 1):
-            if result.done:
-                break
-
-            message = _benchmark_action(client, step, last_echoed, last_reward, history)
-            try:
-                result = await env.step(MyEnvV4Action(message=message))
-                obs = result.observation
-                reward = float(result.reward or 0.0)
-                done = bool(result.done)
-                error = getattr(result, "last_action_error", None)
-                last_echoed = getattr(obs, "echoed_message", last_echoed)
-                last_reward = reward
-            except Exception as exc:
-                reward = 0.0
-                done = True
-                error = str(exc)
-
-            rewards.append(reward)
-            steps_taken = step
-            log_step(step=step, action=message, reward=reward, done=done, error=error)
-            history.append(f"Step {step}: {message!r} -> reward {reward:+.2f}")
-            if done:
-                break
-
-        score = sum(rewards) / max(1.0, float(MAX_STEPS) * 15.0)
-        score = max(0.0, min(1.0, score))
-        success = score >= 0.1
-    finally:
-        try:
-            await env.close()
-        except Exception:
-            pass
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
-    return True
-
-
 def main() -> None:
     client = _openai_client()
-    if USE_BENCHMARK_ENV and LOCAL_IMAGE_NAME:
-        try:
-            if asyncio.run(run_benchmark_task(client)):
-                return
-        except Exception as exc:
-            print(f"[DEBUG] benchmark runner failed: {exc}", flush=True)
-
     for task_name, task_factory in _load_tasks():
         run_local_task(task_name, task_factory, client)
 
