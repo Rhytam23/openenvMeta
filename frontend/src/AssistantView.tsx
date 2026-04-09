@@ -116,9 +116,9 @@ export function AssistantView() {
         prev.length
           ? prev
           : [
-              { id: "downtown", label: "Downtown Core", position: [40.7128, -74.006] },
-              { id: "stadium", label: "Riverfront Stadium", position: [40.729, -73.9965] },
-              { id: "hospital", label: "City General Hospital", position: [40.7182, -74.015] },
+              { id: "downtown", label: "Connaught Place, New Delhi", position: [28.6315, 77.2167] },
+              { id: "stadium", label: "Narendra Modi Stadium, Ahmedabad", position: [23.079, 72.5988] },
+              { id: "hospital", label: "AIIMS New Delhi", position: [28.5672, 77.21] },
             ],
       );
     }
@@ -1567,3 +1567,5 @@ function worldPixelToLatLng(x: number, y: number, zoom: number) {
   const lat = (180 / Math.PI) * Math.atan(Math.sinh(n));
   return [lat, lng] as [number, number];
 }
+
+

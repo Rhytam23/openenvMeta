@@ -16,11 +16,11 @@ from .providers import get_provider
 
 
 DESTINATIONS: Dict[str, Tuple[str, Tuple[float, float]]] = {
-    "downtown": ("Downtown Core", (40.7128, -74.0060)),
-    "stadium": ("Riverfront Stadium", (40.7290, -73.9965)),
-    "hospital": ("City General Hospital", (40.7182, -74.0150)),
-    "university": ("Westside University", (40.7295, -73.9934)),
-    "airport": ("Metro Airport Terminal", (40.6413, -73.7781)),
+    "downtown": ("Connaught Place, New Delhi", (28.6315, 77.2167)),
+    "stadium": ("Narendra Modi Stadium, Ahmedabad", (23.0790, 72.5988)),
+    "hospital": ("AIIMS New Delhi", (28.5672, 77.2100)),
+    "university": ("Indian Institute of Science, Bengaluru", (13.0216, 77.5678)),
+    "airport": ("Indira Gandhi International Airport", (28.5562, 77.1000)),
 }
 
 PRESETS: List[AssistantPreset] = [
@@ -75,7 +75,7 @@ _HISTORY: List[AssistantHistoryEntry] = []
 
 
 def _destination(destination: str) -> Tuple[str, Tuple[float, float]]:
-    return DESTINATIONS.get(destination.lower(), ("Downtown Core", DESTINATIONS["downtown"][1]))
+    return DESTINATIONS.get(destination.lower(), ("Connaught Place, New Delhi", DESTINATIONS["downtown"][1]))
 
 
 def _resolve_destination(destination: str, destination_query: str | None = None) -> Tuple[str, Tuple[float, float], str, bool]:
@@ -309,7 +309,7 @@ def build_assistant_state(
         preference = TripPreference(preference)
     trip_urgency = max(0.0, min(1.0, float(trip_urgency)))
     destination_label, destination_point, destination_source, custom_destination = _resolve_destination(destination, destination_query)
-    origin = origin or (40.7138, -74.0065)
+    origin = origin or (28.6139, 77.2090)
     provider = get_provider()
     snapshot = provider.snapshot(destination, mode, preference.value, refresh=refresh)
     lots = snapshot.lots
@@ -363,3 +363,4 @@ def build_assistant_state(
     )
     _record_history(state)
     return state.model_copy(update={"recent_searches": get_recent_searches()})
+
