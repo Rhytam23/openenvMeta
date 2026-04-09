@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import socket
 from pathlib import Path
 
 import uvicorn
@@ -186,13 +187,21 @@ if os.path.exists(dist_dir):
 
 
 def main():
-    port = int(os.environ.get("PORT", "8000"))
-    try:
-        uvicorn.run(app, host="0.0.0.0", port=port)
-    except OSError as exc:
-        if getattr(exc, "errno", None) in {98, 10048}:
-            return
-        raise
+    start_port = int(os.environ.get("PORT", "7860"))
+    port = _pick_port(start_port)
+    uvicorn.run(app, host="0.0.0.0", port=port)
+
+
+def _pick_port(start_port: int, attempts: int = 8) -> int:
+    for port in range(start_port, start_port + attempts):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind(("0.0.0.0", port))
+            except OSError:
+                continue
+            return port
+    return start_port
 
 
 if __name__ == "__main__":
