@@ -83,6 +83,8 @@ TASK_LIBRARY: Dict[str, TaskDefinition] = {
 
 
 class SmartParkingEnv:
+    SCORE_EPSILON = 0.0001
+
     def __init__(self, grid_size: int = 6, num_spots: int = 4, max_steps: int = 18):
         self.grid_size = grid_size
         self.num_spots = num_spots
@@ -285,9 +287,10 @@ class SmartParkingEnv:
 
     def grade(self) -> float:
         if not self.task_grader:
-            return 0.0
+            return self.SCORE_EPSILON
         score = self.task_grader(self)
-        return max(0.0, min(1.0, round(float(score), 4)))
+        clipped = max(self.SCORE_EPSILON, min(1.0 - self.SCORE_EPSILON, float(score)))
+        return round(clipped, 4)
 
     def state(self) -> Dict[str, Any]:
         state = FullState(
