@@ -187,7 +187,12 @@ if os.path.exists(dist_dir):
 
 def main():
     port = int(os.environ.get("PORT", "8000"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=port)
+    except OSError as exc:
+        if getattr(exc, "errno", None) in {98, 10048}:
+            return
+        raise
 
 
 if __name__ == "__main__":
