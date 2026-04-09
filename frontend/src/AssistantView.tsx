@@ -149,6 +149,13 @@ export function AssistantView() {
     });
   }
 
+  function handleDestinationChange(nextDestination: string) {
+    setDestination(nextDestination);
+    setDestinationQuery("");
+    setSelectedLotId(null);
+    void search(false, { destination: nextDestination, mode, preference });
+  }
+
   async function applyPreset(preset: AssistantPreset) {
     setDestination(preset.destination);
     setDestinationQuery("");
@@ -240,7 +247,7 @@ export function AssistantView() {
             </p>
           </div>
           <div className="grid gap-2 sm:min-w-[24rem] sm:grid-cols-2">
-            <SelectField label="Destination" value={destination} onChange={setDestination} options={destinations} />
+            <SelectField label="Destination" value={destination} onChange={handleDestinationChange} options={destinations} />
             <label className="block">
               <span className="mb-1 block text-xs uppercase tracking-[0.3em] text-slate-400">Search place</span>
               <input
