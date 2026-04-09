@@ -10,13 +10,6 @@ try:
 except Exception:  # pragma: no cover - fallback when the client library is unavailable
     OpenAI = None  # type: ignore[assignment]
 
-try:
-    from my_env_v4 import MyEnvV4Action, MyEnvV4Env
-except Exception:  # pragma: no cover - benchmark package may not exist locally
-    MyEnvV4Action = None  # type: ignore[assignment]
-    MyEnvV4Env = None  # type: ignore[assignment]
-
-
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or ""
@@ -24,6 +17,7 @@ LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME") or "
 BENCHMARK_TASK = os.getenv("MY_ENV_V4_TASK", "echo")
 BENCHMARK_NAME = os.getenv("MY_ENV_V4_BENCHMARK", "my_env_v4")
 MAX_STEPS = int(os.getenv("MAX_STEPS", "32"))
+USE_BENCHMARK_ENV = os.getenv("USE_BENCHMARK_ENV", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def log_start(task: str, env: str, model: str) -> None:
@@ -247,7 +241,12 @@ def _benchmark_action(client: Optional[OpenAI], step: int, last_echoed: str, las
 
 
 async def run_benchmark_task(client: Optional[OpenAI]) -> bool:
-    if MyEnvV4Env is None or MyEnvV4Action is None:
+    try:
+        from my_env_v4 import MyEnvV4Action, MyEnvV4Env  # type: ignore
+    except Exception:
+        return False
+
+    if not USE_BENCHMARK_ENV:
         return False
 
     try:
@@ -308,7 +307,7 @@ async def run_benchmark_task(client: Optional[OpenAI]) -> bool:
 
 def main() -> None:
     client = _openai_client()
-    if MyEnvV4Env is not None and MyEnvV4Action is not None and LOCAL_IMAGE_NAME:
+    if USE_BENCHMARK_ENV and LOCAL_IMAGE_NAME:
         try:
             if asyncio.run(run_benchmark_task(client)):
                 return
