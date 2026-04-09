@@ -17,9 +17,10 @@ class TaskMedium:
 
     def get_grader(self):
         def grader(env: SmartParkingEnv) -> float:
+            eps = env.SCORE_EPSILON
             reserve_score = 0.35 if env.metrics.reserved_spot == self.definition.target_spot else 0.0
             park_score = 0.45 if env.metrics.parked_spot == self.definition.target_spot else 0.0
             efficiency = 0.2 * min(1.0, self.optimal_steps / max(self.optimal_steps, env.steps_elapsed or 1))
-            return reserve_score + park_score + efficiency
+            return max(eps, min(1.0 - eps, reserve_score + park_score + efficiency))
 
         return grader

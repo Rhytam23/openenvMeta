@@ -17,10 +17,11 @@ class TaskEasy:
 
     def get_grader(self):
         def grader(env: SmartParkingEnv) -> float:
+            eps = env.SCORE_EPSILON
             if not env.is_parked or env.metrics.parked_spot != self.definition.target_spot:
-                return 0.0
+                return eps
             efficiency = self.optimal_steps / max(self.optimal_steps, env.steps_elapsed)
             penalty = min(0.2, env.metrics.invalid_actions * 0.05 + env.metrics.loop_penalties * 0.05)
-            return max(0.0, efficiency - penalty)
+            return max(eps, min(1.0 - eps, efficiency - penalty))
 
         return grader

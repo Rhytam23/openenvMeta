@@ -17,11 +17,12 @@ class TaskHard:
 
     def get_grader(self):
         def grader(env: SmartParkingEnv) -> float:
+            eps = env.SCORE_EPSILON
             if env.metrics.parked_spot != self.definition.target_spot:
-                return 0.0
+                return eps
             efficiency = 0.45 * min(1.0, self.optimal_steps / max(self.optimal_steps, env.steps_elapsed or 1))
             discipline = 0.35 * max(0.0, 1.0 - (env.metrics.loop_penalties * 0.2 + env.metrics.invalid_actions * 0.15))
             scan_quality = 0.2 if 1 <= env.metrics.scans <= 2 else 0.05
-            return efficiency + discipline + scan_quality
+            return max(eps, min(1.0 - eps, efficiency + discipline + scan_quality))
 
         return grader
