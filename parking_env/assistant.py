@@ -216,6 +216,15 @@ def build_assistant_state(
     snapshot = provider.snapshot(destination, mode, preference.value, refresh=refresh)
     lots = snapshot.lots
     route_probe = estimate_route_metrics(origin, destination_point, "driving" if mode == "drive" else "walking")
+    provider_status = snapshot.provider_status
+    provider_warning = snapshot.provider_warning
+    if snapshot.live_data_enabled and snapshot.freshness_minutes >= 12 and provider_status == "healthy":
+        provider_status = "degraded"
+        provider_warning = provider_warning or "Live data is getting stale."
+    if route_probe.source == "estimate":
+        provider_warning = provider_warning or "Route service unavailable; using estimated travel times."
+        if provider_status == "healthy":
+            provider_status = "degraded"
 
     recommendations = sorted(
         [_score_lot(lot, origin, destination_point, mode, preference) for lot in lots],
@@ -237,6 +246,8 @@ def build_assistant_state(
         open_lots=open_lots,
         data_source=snapshot.source_name,
         provider_name=snapshot.source_name,
+        provider_status=provider_status,
+        provider_warning=provider_warning,
         last_updated_at=snapshot.last_updated_at,
         freshness_minutes=snapshot.freshness_minutes,
         route_engine=route_probe.source.upper(),

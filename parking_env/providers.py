@@ -16,6 +16,8 @@ from .models import ParkingLot
 @dataclass(frozen=True)
 class ParkingSnapshot:
     source_name: str
+    provider_status: str
+    provider_warning: str | None
     last_updated_at: str
     freshness_minutes: int
     lots: List[ParkingLot]
@@ -37,6 +39,8 @@ class DemoParkingProvider:
                 lot.confidence = max(0.55, min(0.99, round(lot.confidence + rnd.uniform(-0.04, 0.04), 2)))
         return ParkingSnapshot(
             source_name="Demo feed",
+            provider_status="healthy",
+            provider_warning=None,
             last_updated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
             freshness_minutes=5 if refresh else 15,
             lots=lots,
@@ -51,20 +55,35 @@ class LiveParkingProvider:
         self.provider_name = provider_name
 
     def snapshot(self, destination: str, mode: str, preference: str, refresh: bool = False) -> ParkingSnapshot:
-        url = self.feed_url
-        if "{destination}" in url:
-            url = url.format(destination=destination, mode=mode, preference=preference, refresh=str(refresh).lower())
-        if "?" not in url:
-            url = f"{url}?{urlencode({'destination': destination, 'mode': mode, 'preference': preference, 'refresh': str(refresh).lower()})}"
-        payload = _fetch_json(url, self.api_key)
-        lots = _lots_from_payload(payload)
-        return ParkingSnapshot(
-            source_name=self.provider_name,
-            last_updated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            freshness_minutes=1 if refresh else 3,
-            lots=lots,
-            live_data_enabled=True,
-        )
+        try:
+            url = self.feed_url
+            if "{destination}" in url:
+                url = url.format(destination=destination, mode=mode, preference=preference, refresh=str(refresh).lower())
+            if "?" not in url:
+                url = f"{url}?{urlencode({'destination': destination, 'mode': mode, 'preference': preference, 'refresh': str(refresh).lower()})}"
+            payload = _fetch_json(url, self.api_key)
+            lots = _lots_from_payload(payload)
+            return ParkingSnapshot(
+                source_name=self.provider_name,
+                provider_status="healthy",
+                provider_warning=None,
+                last_updated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                freshness_minutes=1 if refresh else 3,
+                lots=lots,
+                live_data_enabled=True,
+            )
+        except Exception as exc:
+            demo = DemoParkingProvider().snapshot(destination, mode, preference, refresh=refresh)
+            warning = f"Live feed unavailable; using demo fallback. ({exc.__class__.__name__})"
+            return ParkingSnapshot(
+                source_name=f"{self.provider_name} fallback",
+                provider_status="degraded",
+                provider_warning=warning,
+                last_updated_at=demo.last_updated_at,
+                freshness_minutes=demo.freshness_minutes,
+                lots=demo.lots,
+                live_data_enabled=False,
+            )
 
 
 def get_provider() -> ParkingDataProvider:

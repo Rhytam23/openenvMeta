@@ -127,9 +127,23 @@ async def get_assistant_provider():
     return {
         "data_source": _assistant_state.data_source,
         "provider_name": _assistant_state.provider_name,
+        "provider_status": _assistant_state.provider_status,
+        "provider_warning": _assistant_state.provider_warning,
         "route_engine": _assistant_state.route_engine,
         "live_data_enabled": _assistant_state.live_data_enabled,
         "destination_source": _assistant_state.destination_source,
+        "freshness_minutes": _assistant_state.freshness_minutes,
+    }
+
+
+@app.get("/assistant/health")
+async def get_assistant_health():
+    return {
+        "status": _assistant_state.provider_status,
+        "warning": _assistant_state.provider_warning,
+        "freshness_minutes": _assistant_state.freshness_minutes,
+        "route_engine": _assistant_state.route_engine,
+        "live_data_enabled": _assistant_state.live_data_enabled,
     }
 
 

@@ -173,6 +173,8 @@ class AssistantState(BaseModel):
     open_lots: int
     data_source: str
     provider_name: str
+    provider_status: str = "healthy"
+    provider_warning: Optional[str] = None
     last_updated_at: str
     freshness_minutes: int
     route_engine: str

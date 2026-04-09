@@ -45,6 +45,14 @@ export function AssistantView() {
   const [preference, setPreference] = useState<TripPreference>("balanced");
   const [originOverride, setOriginOverride] = useState<[number, number] | null>(null);
   const [selectedLotId, setSelectedLotId] = useState<string | null>(null);
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+  const [filters, setFilters] = useState({
+    maxPrice: "",
+    maxWalk: "",
+    minConfidence: "0.65",
+    minAvailability: "1",
+    reservableOnly: false,
+  });
   const [favorites, setFavorites] = useState<FavoriteTrip[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -136,9 +144,26 @@ export function AssistantView() {
   const presets = assistant?.presets ?? [];
   const history = assistant?.recent_searches ?? [];
   const currentOrigin = originOverride ?? assistant?.origin ?? null;
-  const selectedLot = selectedLotId ? recommendations.find((item) => item.lot.id === selectedLotId)?.lot ?? null : null;
-
   const selectedDestination = destinations.find((item) => item.id === destination) ?? null;
+  const filteredRecommendations = useMemo(() => {
+    if (!recommendations.length) return [];
+    const maxPrice = filters.maxPrice.trim() ? Number(filters.maxPrice) : Number.POSITIVE_INFINITY;
+    const maxWalk = filters.maxWalk.trim() ? Number(filters.maxWalk) : Number.POSITIVE_INFINITY;
+    const minConfidence = Number(filters.minConfidence || "0");
+    const minAvailability = filters.minAvailability.trim() ? Number(filters.minAvailability) : 0;
+    return recommendations.filter((item) => {
+      if (filters.reservableOnly && !item.lot.reservation_supported) return false;
+      if (item.lot.hourly_rate > maxPrice) return false;
+      if (item.lot.walk_minutes > maxWalk) return false;
+      if (item.lot.confidence < minConfidence) return false;
+      if (item.lot.available_spots < minAvailability) return false;
+      return true;
+    });
+  }, [recommendations, filters]);
+  const visibleRecommendations = filteredRecommendations.length ? filteredRecommendations : recommendations;
+  const selectedLot = selectedLotId ? visibleRecommendations.find((item) => item.lot.id === selectedLotId)?.lot ?? null : null;
+  const topPicks = visibleRecommendations.slice(0, 3);
+  const primaryRecommendation = visibleRecommendations[0] ?? null;
 
   function syncSelectedLot(nextState: AssistantState) {
     setSelectedLotId((current) => {
@@ -148,6 +173,12 @@ export function AssistantView() {
       return nextState.best_option?.lot.id ?? nextState.recommendations[0]?.lot.id ?? null;
     });
   }
+
+  useEffect(() => {
+    if (!selectedLotId) return;
+    if (visibleRecommendations.some((item) => item.lot.id === selectedLotId)) return;
+    setSelectedLotId(visibleRecommendations[0]?.lot.id ?? null);
+  }, [selectedLotId, visibleRecommendations]);
 
   function handleDestinationChange(nextDestination: string) {
     setDestination(nextDestination);
@@ -230,8 +261,27 @@ export function AssistantView() {
     await search(false, { destination: item.destination, mode: item.mode, preference: item.preference });
   }
 
+  function rerunHistory(item: AssistantHistoryEntry) {
+    setDestination(item.destination);
+    setDestinationQuery("");
+    setMode(item.mode);
+    setPreference(item.preference);
+    setSelectedLotId(null);
+    void search(false, { destination: item.destination, mode: item.mode, preference: item.preference });
+  }
+
+  function clearFilters() {
+    setFilters({
+      maxPrice: "",
+      maxWalk: "",
+      minConfidence: "0.65",
+      minAvailability: "1",
+      reservableOnly: false,
+    });
+  }
+
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_420px]">
+    <div className="grid gap-6 pb-36 xl:grid-cols-[minmax(0,1.45fr)_420px]">
       <section className="rounded-[2rem] border border-cyan-400/15 bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.14),_transparent_35%),linear-gradient(180deg,_rgba(12,18,32,0.98),_rgba(4,9,21,1))] p-5 shadow-[0_0_80px_rgba(6,182,212,0.12)]">
         <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -363,6 +413,63 @@ export function AssistantView() {
           <Metric label="Mode" value={(assistant?.travel_mode ?? mode).toUpperCase()} accent="text-blue-200" icon={<Navigation className="h-4 w-4" />} />
         </div>
 
+        <div className="mt-5 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+          <Panel title="Filters" icon={<SlidersHorizontal className="h-4 w-4" />}>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <FilterField label="Max price" value={filters.maxPrice} placeholder="$ / hr" onChange={(value) => setFilters((prev) => ({ ...prev, maxPrice: value }))} />
+              <FilterField label="Max walk" value={filters.maxWalk} placeholder="minutes" onChange={(value) => setFilters((prev) => ({ ...prev, maxWalk: value }))} />
+              <FilterField label="Min confidence" value={filters.minConfidence} placeholder="0-1" onChange={(value) => setFilters((prev) => ({ ...prev, minConfidence: value }))} />
+              <FilterField label="Min availability" value={filters.minAvailability} placeholder="spots" onChange={(value) => setFilters((prev) => ({ ...prev, minAvailability: value }))} />
+              <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={filters.reservableOnly}
+                  onChange={(event) => setFilters((prev) => ({ ...prev, reservableOnly: event.target.checked }))}
+                  className="h-4 w-4 rounded border-white/20 bg-slate-900 text-cyan-400"
+                />
+                Reservable only
+              </label>
+              <button
+                onClick={clearFilters}
+                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10"
+              >
+                Reset filters
+              </button>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-slate-300">
+                Showing {visibleRecommendations.length}/{recommendations.length} lots
+              </span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-slate-300">
+                Priority: {preference}
+              </span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-slate-300">
+                Walk cap: {filters.maxWalk || "any"} min
+              </span>
+            </div>
+          </Panel>
+
+          <Panel title="Data trust" icon={<Shield className="h-4 w-4" />}>
+            <div className="space-y-2">
+              <SummaryLine label="Provider" value={assistant?.provider_name ?? "--"} />
+              <SummaryLine label="Status" value={assistant?.provider_status ?? "--"} />
+              <SummaryLine label="Freshness" value={`${assistant?.freshness_minutes ?? "--"}m`} />
+              <SummaryLine label="Updated" value={assistant?.last_updated_at ? new Date(assistant.last_updated_at).toLocaleString() : "--"} />
+              <SummaryLine label="Route engine" value={assistant?.route_engine ?? "--"} />
+            </div>
+            {assistant?.provider_warning && (
+              <div className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                {assistant.provider_warning}
+              </div>
+            )}
+            {!assistant?.provider_warning && (assistant?.freshness_minutes ?? 0) >= 12 && (
+              <div className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                Data is getting stale. Refresh before you leave.
+              </div>
+            )}
+          </Panel>
+        </div>
+
         <div className="mt-5 grid gap-4 xl:grid-cols-[1.02fr_0.98fr]">
           <Panel
             title="Live map"
@@ -384,7 +491,7 @@ export function AssistantView() {
                 <RealMap
                   origin={assistant.origin}
                   destination={assistant.destination_position}
-                  lots={recommendations.map((item) => item.lot)}
+                  lots={visibleRecommendations.map((item) => item.lot)}
                   bestLot={recommended?.lot ?? null}
                   selectedLot={selectedLot}
                   onSelectLot={(lot) => setSelectedLotId(lot.id)}
@@ -452,46 +559,71 @@ export function AssistantView() {
           </Panel>
 
           <Panel title="Recommended Lot" icon={<Target className="h-4 w-4" />}>
-            {recommended ? (
+            {primaryRecommendation ? (
               <div className="rounded-[1.5rem] border border-cyan-300/20 bg-cyan-500/10 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-lg font-bold text-white">{recommended.lot.name}</div>
-                    <div className="mt-1 text-sm text-slate-300">{recommended.lot.address}</div>
+                    <div className="text-lg font-bold text-white">{primaryRecommendation.lot.name}</div>
+                    <div className="mt-1 text-sm text-slate-300">{primaryRecommendation.lot.address}</div>
                   </div>
-                  <StatusBadge tone={recommended.lot.reservation_supported ? "success" : "warning"}>
-                    {recommended.lot.reservation_supported ? "Reserve" : "Walk-in"}
+                  <StatusBadge tone={primaryRecommendation.lot.reservation_supported ? "success" : "warning"}>
+                    {primaryRecommendation.lot.reservation_supported ? "Reserve" : "Walk-in"}
                   </StatusBadge>
                 </div>
                 <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  <InfoRow label="Available" value={`${recommended.lot.available_spots}/${recommended.lot.total_spots}`} />
-                  <InfoRow label="Rate" value={`$${recommended.lot.hourly_rate.toFixed(2)}/hr`} />
-                  <InfoRow label="Drive" value={`${recommended.lot.drive_minutes} min`} />
-                  <InfoRow label="Walk" value={`${recommended.lot.walk_minutes} min`} />
-                  <InfoRow label="Origin travel" value={`${recommended.estimated_drive_minutes} min`} />
-                  <InfoRow label="Est. total" value={`${recommended.estimated_total_minutes} min`} />
-                  <InfoRow label="Trip dist." value={`${recommended.travel_distance.toFixed(2)} km`} />
-                  <InfoRow label="Dist. to dest" value={recommended.distance_to_destination.toFixed(3)} />
-                  <InfoRow label="From origin" value={`${recommended.distance_from_origin.toFixed(2)} km`} />
+                  <InfoRow label="Available" value={`${primaryRecommendation.lot.available_spots}/${primaryRecommendation.lot.total_spots}`} />
+                  <InfoRow label="Rate" value={`$${primaryRecommendation.lot.hourly_rate.toFixed(2)}/hr`} />
+                  <InfoRow label="Drive" value={`${primaryRecommendation.lot.drive_minutes} min`} />
+                  <InfoRow label="Walk" value={`${primaryRecommendation.lot.walk_minutes} min`} />
+                  <InfoRow label="Origin travel" value={`${primaryRecommendation.estimated_drive_minutes} min`} />
+                  <InfoRow label="Est. total" value={`${primaryRecommendation.estimated_total_minutes} min`} />
+                  <InfoRow label="Trip dist." value={`${primaryRecommendation.travel_distance.toFixed(2)} km`} />
+                  <InfoRow label="Dist. to dest" value={primaryRecommendation.distance_to_destination.toFixed(3)} />
+                  <InfoRow label="From origin" value={`${primaryRecommendation.distance_from_origin.toFixed(2)} km`} />
                 </div>
-                <p className="mt-4 text-sm text-cyan-50">{recommended.reason}</p>
-                <p className="mt-2 text-sm text-slate-300">{recommended.tradeoff}</p>
+                <p className="mt-4 text-sm text-cyan-50">{primaryRecommendation.reason}</p>
+                <p className="mt-2 text-sm text-slate-300">{primaryRecommendation.tradeoff}</p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button
-                    onClick={() => openLotDirections(recommended.lot)}
+                    onClick={() => openLotDirections(primaryRecommendation.lot)}
                     className="rounded-full border border-cyan-300/20 bg-cyan-400/15 px-4 py-2 text-sm font-semibold text-cyan-50 transition hover:bg-cyan-300/25"
                   >
                     Navigate
                   </button>
-                  {recommended.lot.reservation_supported && (
+                  {primaryRecommendation.lot.reservation_supported && (
                     <button
-                      onClick={() => openLotReservation(recommended.lot)}
+                      onClick={() => openLotReservation(primaryRecommendation.lot)}
                       className="rounded-full border border-emerald-300/20 bg-emerald-400/15 px-4 py-2 text-sm font-semibold text-emerald-50 transition hover:bg-emerald-300/25"
                     >
                       Reserve
                     </button>
                   )}
                 </div>
+                {topPicks.length > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {topPicks.map((item, index) => (
+                      <button
+                        key={item.lot.id}
+                        onClick={() => setSelectedLotId(item.lot.id)}
+                        className={`rounded-full border px-3 py-2 text-left text-xs font-semibold transition ${
+                          selectedLot?.id === item.lot.id
+                            ? "border-cyan-300/40 bg-cyan-400/20 text-cyan-50"
+                            : "border-white/10 bg-white/5 text-slate-200 hover:border-cyan-300/30 hover:bg-cyan-400/10"
+                        }`}
+                      >
+                        <div className="uppercase tracking-[0.24em] text-[10px] text-slate-300">Top {index + 1}</div>
+                        <div className="mt-1">{item.lot.name}</div>
+                        <div className="mt-1 text-[10px] font-normal text-slate-300">
+                          ${item.lot.hourly_rate.toFixed(2)} | {item.lot.walk_minutes}m walk | {Math.round(item.lot.confidence * 100)}%
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : recommendations.length > 0 ? (
+              <div className="rounded-2xl border border-amber-300/20 bg-amber-500/10 p-4 text-sm text-amber-50">
+                No lots match the current filters. Reset filters to see the best recommendation again.
               </div>
             ) : (
               <div className="rounded-2xl border border-dashed border-white/10 px-4 py-8 text-sm text-slate-400">
@@ -503,8 +635,25 @@ export function AssistantView() {
 
         <div className="mt-5 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
           <Panel title="Ranked lots" icon={<ArrowRight className="h-4 w-4" />}>
+            {topPicks.length > 0 && (
+              <div className="mb-4 flex flex-wrap gap-2">
+                {topPicks.map((item, index) => (
+                  <button
+                    key={item.lot.id}
+                    onClick={() => setSelectedLotId(item.lot.id)}
+                    className={`rounded-full border px-3 py-2 text-xs font-semibold transition ${
+                      selectedLot?.id === item.lot.id
+                        ? "border-cyan-300/40 bg-cyan-400/20 text-cyan-50"
+                        : "border-white/10 bg-white/5 text-slate-200 hover:border-cyan-300/30 hover:bg-cyan-400/10"
+                    }`}
+                  >
+                    {index + 1}. {item.lot.name} · {item.score.toFixed(2)}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="space-y-3">
-              {recommendations.map((item, index) => (
+              {visibleRecommendations.map((item, index) => (
                 <div key={item.lot.id} className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>
@@ -527,21 +676,32 @@ export function AssistantView() {
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       onClick={() => openLotDirections(item.lot)}
-                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-cyan-300/40 hover:bg-cyan-400/10"
+                      className="min-h-11 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:border-cyan-300/40 hover:bg-cyan-400/10"
                     >
                       Navigate
                     </button>
                     {item.lot.reservation_supported && (
                       <button
                         onClick={() => openLotReservation(item.lot)}
-                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-emerald-300/40 hover:bg-emerald-400/10"
+                        className="min-h-11 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:border-emerald-300/40 hover:bg-emerald-400/10"
                       >
                         Reserve
                       </button>
                     )}
+                    <button
+                      onClick={() => setSelectedLotId(item.lot.id)}
+                      className="min-h-11 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:border-cyan-300/40 hover:bg-cyan-400/10"
+                    >
+                      Focus map
+                    </button>
                   </div>
                 </div>
               ))}
+              {visibleRecommendations.length === 0 && recommendations.length > 0 && (
+                <div className="rounded-2xl border border-amber-300/20 bg-amber-500/10 p-4 text-sm text-amber-50">
+                  No lots match the current filters. Reset filters to bring results back.
+                </div>
+              )}
             </div>
           </Panel>
 
@@ -558,7 +718,7 @@ export function AssistantView() {
             <Panel title="Recent searches" icon={<History className="h-4 w-4" />}>
               <div className="space-y-2">
                 {history.length > 0 ? (
-                  history.map((item) => <HistoryRow key={`${item.searched_at}-${item.destination}-${item.mode}`} item={item} />)
+                  history.map((item) => <HistoryRow key={`${item.searched_at}-${item.destination}-${item.mode}`} item={item} onRerun={rerunHistory} />)
                 ) : (
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-400">
                     Your last searches will appear here for quick reuse.
@@ -570,6 +730,33 @@ export function AssistantView() {
         </div>
 
         {error && <div className="mt-4 rounded-2xl bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div>}
+
+        <div className="sm:hidden fixed inset-x-4 bottom-4 z-40">
+          <button
+            onClick={() => setMobileActionsOpen((current) => !current)}
+            className="w-full rounded-3xl border border-white/10 bg-slate-950/95 px-4 py-3 text-sm font-semibold text-white shadow-[0_20px_50px_rgba(0,0,0,0.35)] backdrop-blur"
+          >
+            {mobileActionsOpen ? "Hide quick actions" : "Show quick actions"}
+          </button>
+          {mobileActionsOpen && (
+            <div className="mt-2 rounded-[1.6rem] border border-white/10 bg-slate-950/95 p-3 shadow-[0_20px_50px_rgba(0,0,0,0.35)] backdrop-blur">
+              <div className="grid gap-2">
+                <button onClick={() => void search(false)} disabled={busy} className="min-h-12 rounded-2xl border border-cyan-300/30 bg-cyan-400 px-4 py-3 text-sm font-semibold text-slate-950 disabled:opacity-60">
+                  Search parking
+                </button>
+                <button onClick={() => void search(true)} disabled={busy} className="min-h-12 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 disabled:opacity-60">
+                  Refresh availability
+                </button>
+                <button onClick={useCurrentLocation} disabled={busy} className="min-h-12 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 disabled:opacity-60">
+                  Use my location
+                </button>
+                <button onClick={saveFavorite} disabled={busy} className="min-h-12 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 disabled:opacity-60">
+                  Save favorite
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </section>
 
       <aside className="space-y-6">
@@ -648,6 +835,31 @@ function SelectChoice({
           </option>
         ))}
       </select>
+    </label>
+  );
+}
+
+function FilterField({
+  label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[10px] uppercase tracking-[0.28em] text-slate-400">{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        inputMode="decimal"
+        className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300"
+      />
     </label>
   );
 }
@@ -765,14 +977,22 @@ function Suggestion({ label, value }: { label: string; value: string }) {
   );
 }
 
-function HistoryRow({ item }: { item: AssistantHistoryEntry }) {
+function HistoryRow({ item, onRerun }: { item: AssistantHistoryEntry; onRerun: (item: AssistantHistoryEntry) => void }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
       <div className="flex items-center justify-between gap-2">
         <div className="text-sm font-semibold text-white">{item.destination_label}</div>
-        <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] uppercase tracking-[0.22em] text-slate-300">
-          {item.preference}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] uppercase tracking-[0.22em] text-slate-300">
+            {item.preference}
+          </span>
+          <button
+            onClick={() => onRerun(item)}
+            className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] uppercase tracking-[0.22em] text-cyan-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10"
+          >
+            Rerun
+          </button>
+        </div>
       </div>
       <div className="mt-2 text-xs uppercase tracking-[0.28em] text-slate-400">
         {item.mode} | {item.searched_at ? new Date(item.searched_at).toLocaleTimeString() : "--"}

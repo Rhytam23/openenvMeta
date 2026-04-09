@@ -25,35 +25,9 @@ def parse_coordinates(value: str) -> Tuple[float, float] | None:
         return None
 
 
+@lru_cache(maxsize=256)
 def geocode_destination(query: str) -> Tuple[str, Tuple[float, float], str]:
-    query = query.strip()
-    if not query:
-        raise ValueError("Destination query is empty.")
-    coords = parse_coordinates(query)
-    if coords:
-        return query, coords, "coordinates"
-    if os.environ.get("PARKING_GEOCODER_URL"):
-        data = _fetch_json(
-            os.environ["PARKING_GEOCODER_URL"],
-            params={"q": query, "format": "jsonv2", "limit": "1"},
-        )
-        item = (data or [{}])[0]
-        lat = float(item["lat"])
-        lng = float(item["lon"])
-        label = item.get("display_name") or query
-        return label, (lat, lng), "geocoder"
-    data = _fetch_json(
-        "https://nominatim.openstreetmap.org/search",
-        params={"q": query, "format": "jsonv2", "limit": "1"},
-        headers={"User-Agent": os.environ.get("PARKING_HTTP_USER_AGENT", "OpenEnvParking/1.0")},
-    )
-    item = (data or [{}])[0]
-    if not item:
-        raise ValueError(f"Could not resolve destination: {query}")
-    lat = float(item["lat"])
-    lng = float(item["lon"])
-    label = item.get("display_name") or query
-    return label, (lat, lng), "nominatim"
+    return _geocode_destination(query.strip())
 
 
 @lru_cache(maxsize=256)
@@ -83,6 +57,36 @@ def estimate_route_metrics(start: Tuple[float, float], end: Tuple[float, float],
         km = haversine_km(start, end)
         minutes = (km / 40.0) * 60 if profile == "driving" else (km / 4.8) * 60
         return RouteMetrics(distance_km=round(km, 3), duration_min=round(minutes, 1), source="estimate")
+
+
+def _geocode_destination(query: str) -> Tuple[str, Tuple[float, float], str]:
+    if not query:
+        raise ValueError("Destination query is empty.")
+    coords = parse_coordinates(query)
+    if coords:
+        return query, coords, "coordinates"
+    if os.environ.get("PARKING_GEOCODER_URL"):
+        data = _fetch_json(
+            os.environ["PARKING_GEOCODER_URL"],
+            params={"q": query, "format": "jsonv2", "limit": "1"},
+        )
+        item = (data or [{}])[0]
+        lat = float(item["lat"])
+        lng = float(item["lon"])
+        label = item.get("display_name") or query
+        return label, (lat, lng), "geocoder"
+    data = _fetch_json(
+        "https://nominatim.openstreetmap.org/search",
+        params={"q": query, "format": "jsonv2", "limit": "1"},
+        headers={"User-Agent": os.environ.get("PARKING_HTTP_USER_AGENT", "OpenEnvParking/1.0")},
+    )
+    item = (data or [{}])[0]
+    if not item:
+        raise ValueError(f"Could not resolve destination: {query}")
+    lat = float(item["lat"])
+    lng = float(item["lon"])
+    label = item.get("display_name") or query
+    return label, (lat, lng), "nominatim"
 
 
 def haversine_km(a: Tuple[float, float], b: Tuple[float, float]) -> float:

@@ -88,6 +88,11 @@ export interface AssistantState {
   data_source: string;
   last_updated_at: string;
   freshness_minutes: number;
+  provider_name: string;
+  provider_status: string;
+  provider_warning: string | null;
+  live_data_enabled: boolean;
+  route_engine: string;
   route_summary: string;
   presets: AssistantPreset[];
   recent_searches: AssistantHistoryEntry[];
