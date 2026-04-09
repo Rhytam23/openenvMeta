@@ -93,7 +93,7 @@ class SmartParkingEnv:
         self.current_task = "easy"
         self.task_title = TASK_LIBRARY["easy"].title
         self.objective = TASK_LIBRARY["easy"].objective
-        self.task_grader: Callable[["SmartParkingEnv"], float] = lambda env: 0.0
+        self.task_grader: Callable[["SmartParkingEnv"], float] = lambda env: self.SCORE_EPSILON
         self.reward_engine = RewardEngine()
         self._load_task(TASK_LIBRARY["easy"])
 
@@ -110,7 +110,11 @@ class SmartParkingEnv:
 
     def configure_task(self, task_id: str, grader: Callable[["SmartParkingEnv"], float]) -> None:
         task = TASK_LIBRARY.get(task_id, TASK_LIBRARY["easy"])
-        self.task_grader = grader
+        def wrapped(env: "SmartParkingEnv") -> float:
+            score = grader(env)
+            return max(self.SCORE_EPSILON, min(1.0 - self.SCORE_EPSILON, float(score)))
+
+        self.task_grader = wrapped
         self._load_task(task)
 
     def _load_task(self, task: TaskDefinition) -> None:
