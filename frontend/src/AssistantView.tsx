@@ -810,6 +810,9 @@ function RealMap({
     startY: number;
     startCenter: [number, number];
     startZoom: number;
+    pendingX: number;
+    pendingY: number;
+    frameId: number | null;
   } | null>(null);
   const [viewport, setViewport] = useState({ width: 768, height: 360 });
   const [center, setCenter] = useState<[number, number]>(selectedLot?.position ?? destination);
@@ -867,6 +870,9 @@ function RealMap({
       startY: event.clientY,
       startCenter: center,
       startZoom: zoom,
+      pendingX: event.clientX,
+      pendingY: event.clientY,
+      frameId: null,
     };
     setIsDragging(true);
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -874,11 +880,21 @@ function RealMap({
 
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
     if (!dragRef.current || dragRef.current.pointerId !== event.pointerId) return;
-    updateCenterFromPointer(event.clientX, event.clientY);
+    dragRef.current.pendingX = event.clientX;
+    dragRef.current.pendingY = event.clientY;
+    if (dragRef.current.frameId !== null) return;
+    dragRef.current.frameId = window.requestAnimationFrame(() => {
+      if (!dragRef.current) return;
+      dragRef.current.frameId = null;
+      updateCenterFromPointer(dragRef.current.pendingX, dragRef.current.pendingY);
+    });
   }
 
   function stopDragging(event: React.PointerEvent<HTMLDivElement>) {
     if (dragRef.current && dragRef.current.pointerId === event.pointerId) {
+      if (dragRef.current.frameId !== null) {
+        window.cancelAnimationFrame(dragRef.current.frameId);
+      }
       dragRef.current = null;
       setIsDragging(false);
       try {
@@ -896,7 +912,7 @@ function RealMap({
   function handleWheel(event: React.WheelEvent<HTMLDivElement>) {
     event.preventDefault();
     const direction = event.deltaY < 0 ? 1 : -1;
-    zoomMap(zoom + direction);
+    setZoom((current) => Math.max(12, Math.min(19, current + direction)));
   }
 
   function resetView() {
@@ -924,7 +940,7 @@ function RealMap({
       </div>
       <div
         ref={mapRef}
-        className={`relative h-[360px] overflow-hidden bg-[#0a1020] ${isDragging ? "cursor-grabbing" : "cursor-grab"}`}
+        className={`relative h-[360px] overflow-hidden bg-[#0a1020] ${isDragging ? "cursor-grabbing" : "cursor-grab"} touch-none`}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={stopDragging}
