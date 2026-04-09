@@ -889,14 +889,6 @@ export function AssistantView() {
       </section>
 
       <aside className="space-y-6">
-        <Panel title="Why this helps" icon={<Activity className="h-4 w-4" />}>
-          <div className="space-y-3 text-sm text-slate-300">
-            <Bullet title="Less circling" text="Pick the best lot before you start driving, instead of hunting block by block." />
-            <Bullet title="More context" text="See cost, confidence, walking time, freshness, and reservation support together." />
-            <Bullet title="Operational use" text="A fleet dispatcher, hotel desk, or parking operator can use the same ranking logic." />
-          </div>
-        </Panel>
-
         <Panel title="Action suggestions" icon={<CheckCircle2 className="h-4 w-4" />}>
           <div className="grid gap-2 text-sm text-slate-300">
             <Suggestion label="Search before leaving" value="Use a preset to compare lots early." />
