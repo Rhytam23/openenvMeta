@@ -246,11 +246,16 @@ def _benchmark_action(client: Optional[OpenAI], step: int, last_echoed: str, las
     return "hello"
 
 
-async def run_benchmark_task(client: Optional[OpenAI]) -> None:
+async def run_benchmark_task(client: Optional[OpenAI]) -> bool:
     if MyEnvV4Env is None or MyEnvV4Action is None:
-        return
+        return False
 
-    env = await MyEnvV4Env.from_docker_image(LOCAL_IMAGE_NAME)
+    try:
+        env = await MyEnvV4Env.from_docker_image(LOCAL_IMAGE_NAME)
+    except Exception as exc:
+        print(f"[DEBUG] benchmark env startup failed: {exc}", flush=True)
+        return False
+
     history: List[str] = []
     rewards: List[float] = []
     steps_taken = 0
@@ -298,13 +303,17 @@ async def run_benchmark_task(client: Optional[OpenAI]) -> None:
         except Exception:
             pass
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+    return True
 
 
 def main() -> None:
     client = _openai_client()
     if MyEnvV4Env is not None and MyEnvV4Action is not None and LOCAL_IMAGE_NAME:
-        asyncio.run(run_benchmark_task(client))
-        return
+        try:
+            if asyncio.run(run_benchmark_task(client)):
+                return
+        except Exception as exc:
+            print(f"[DEBUG] benchmark runner failed: {exc}", flush=True)
 
     for task_name, task_factory in _load_tasks():
         run_local_task(task_name, task_factory, client)
