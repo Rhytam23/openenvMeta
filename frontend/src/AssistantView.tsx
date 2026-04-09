@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import axios from "axios";
 import {
@@ -44,6 +44,7 @@ export function AssistantView() {
   const [mode, setMode] = useState("drive");
   const [preference, setPreference] = useState<TripPreference>("balanced");
   const [originOverride, setOriginOverride] = useState<[number, number] | null>(null);
+  const [selectedLotId, setSelectedLotId] = useState<string | null>(null);
   const [favorites, setFavorites] = useState<FavoriteTrip[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -82,6 +83,7 @@ export function AssistantView() {
       ]);
       setDestinations(destRes.data);
       setAssistant(stateRes.data);
+      syncSelectedLot(stateRes.data);
       if (!silent) {
         setDestination(stateRes.data.destination);
         setDestinationQuery("");
@@ -117,6 +119,7 @@ export function AssistantView() {
     try {
       const response = await api.post<AssistantState>(refresh ? "/assistant/refresh" : "/assistant/search", payload);
       setAssistant(response.data);
+      syncSelectedLot(response.data);
       setDestination(response.data.destination);
       setMode(response.data.travel_mode);
       setPreference(response.data.preference);
@@ -133,8 +136,18 @@ export function AssistantView() {
   const presets = assistant?.presets ?? [];
   const history = assistant?.recent_searches ?? [];
   const currentOrigin = originOverride ?? assistant?.origin ?? null;
+  const selectedLot = selectedLotId ? recommendations.find((item) => item.lot.id === selectedLotId)?.lot ?? null : null;
 
   const selectedDestination = destinations.find((item) => item.id === destination) ?? null;
+
+  function syncSelectedLot(nextState: AssistantState) {
+    setSelectedLotId((current) => {
+      if (current && nextState.recommendations.some((item) => item.lot.id === current)) {
+        return current;
+      }
+      return nextState.best_option?.lot.id ?? nextState.recommendations[0]?.lot.id ?? null;
+    });
+  }
 
   async function applyPreset(preset: AssistantPreset) {
     setDestination(preset.destination);
@@ -366,6 +379,9 @@ export function AssistantView() {
                   destination={assistant.destination_position}
                   lots={recommendations.map((item) => item.lot)}
                   bestLot={recommended?.lot ?? null}
+                  selectedLot={selectedLot}
+                  onSelectLot={(lot) => setSelectedLotId(lot.id)}
+                  onClearSelection={() => setSelectedLotId(null)}
                   destinationLabel={assistant.destination_label}
                 />
                 <div className="mt-4 grid gap-2 sm:grid-cols-3">
@@ -376,8 +392,49 @@ export function AssistantView() {
                 <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-slate-300">
                   Selected area: {selectedDestination?.label ?? assistant.destination_label}
                 </div>
+                {selectedLot && (
+                  <div className="mt-3 rounded-2xl border border-cyan-300/20 bg-cyan-500/10 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm uppercase tracking-[0.28em] text-cyan-200">Map focus</div>
+                        <div className="mt-1 text-lg font-semibold text-white">{selectedLot.name}</div>
+                      </div>
+                      <StatusBadge tone={selectedLot.reservation_supported ? "success" : "neutral"}>
+                        {selectedLot.reservation_supported ? "Reservable" : "Walk-in"}
+                      </StatusBadge>
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <InfoRow label="Available" value={`${selectedLot.available_spots}/${selectedLot.total_spots}`} />
+                      <InfoRow label="Rate" value={`$${selectedLot.hourly_rate.toFixed(2)}/hr`} />
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        onClick={() => openLotDirections(selectedLot)}
+                        className="rounded-full border border-cyan-300/20 bg-cyan-400/15 px-4 py-2 text-sm font-semibold text-cyan-50 transition hover:bg-cyan-300/25"
+                      >
+                        Navigate here
+                      </button>
+                      {selectedLot.reservation_supported && (
+                        <button
+                          onClick={() => openLotReservation(selectedLot)}
+                          className="rounded-full border border-emerald-300/20 bg-emerald-400/15 px-4 py-2 text-sm font-semibold text-emerald-50 transition hover:bg-emerald-300/25"
+                        >
+                          Reserve spot
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setSelectedLotId(null)}
+                        className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/30 hover:bg-cyan-400/10"
+                      >
+                        Clear focus
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className="mt-2 text-xs uppercase tracking-[0.28em] text-slate-400">
                   {originOverride ? "GPS origin active" : "Using assistant default origin"}
+                  {" · "}
+                  Drag to pan, wheel to zoom, click markers to focus.
                 </div>
               </div>
             ) : (
@@ -725,30 +782,149 @@ function RealMap({
   destination,
   lots,
   bestLot,
+  selectedLot,
+  onSelectLot,
+  onClearSelection,
   destinationLabel,
 }: {
   origin: [number, number];
   destination: [number, number];
   lots: ParkingLot[];
   bestLot: ParkingLot | null;
+  selectedLot: ParkingLot | null;
+  onSelectLot: (lot: ParkingLot) => void;
+  onClearSelection: () => void;
   destinationLabel: string;
 }) {
-  const center = destination ?? origin;
-  const zoom = 15;
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startCenter: [number, number];
+    startZoom: number;
+  } | null>(null);
+  const [viewport, setViewport] = useState({ width: 768, height: 360 });
+  const [center, setCenter] = useState<[number, number]>(selectedLot?.position ?? destination);
+  const [zoom, setZoom] = useState(15);
+  const [isDragging, setIsDragging] = useState(false);
+
+  useEffect(() => {
+    setCenter(selectedLot?.position ?? destination);
+  }, [destination, selectedLot?.position?.[0], selectedLot?.position?.[1]]);
+
+  useEffect(() => {
+    const node = mapRef.current;
+    if (!node) return;
+    const updateSize = () => setViewport({ width: node.clientWidth || 768, height: node.clientHeight || 360 });
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
   const tiles = useMemo(() => buildTiles(center, zoom, 3), [center, zoom]);
-  const markers = useMemo(() => buildMarkers(origin, destination, lots, bestLot, zoom), [origin, destination, lots, bestLot]);
+  const markers = useMemo(
+    () => buildMarkers(origin, destination, lots, bestLot, selectedLot, zoom, center, viewport),
+    [origin, destination, lots, bestLot, selectedLot, zoom, center, viewport],
+  );
+  const selectedMarker = markers.find((marker) => marker.id === selectedLot?.id) ?? null;
+  const destinationMarker = markers.find((marker) => marker.id === "destination") ?? null;
+  const originMarker = markers.find((marker) => marker.id === "origin") ?? null;
+  const mapPath = useMemo(() => {
+    if (!selectedMarker || !originMarker) return "";
+    const path = [`M ${originMarker.left} ${originMarker.top}`];
+    path.push(`L ${selectedMarker.left} ${selectedMarker.top}`);
+    if (selectedMarker.id !== bestLot?.id && destinationMarker) {
+      path.push(`L ${destinationMarker.left} ${destinationMarker.top}`);
+    }
+    return path.join(" ");
+  }, [selectedMarker, originMarker, destinationMarker, bestLot?.id]);
+
+  function updateCenterFromPointer(clientX: number, clientY: number) {
+    if (!dragRef.current) return;
+    const { startX, startY, startCenter, startZoom } = dragRef.current;
+    const deltaX = clientX - startX;
+    const deltaY = clientY - startY;
+    const startPixel = latLngToWorldPixel(startCenter[0], startCenter[1], startZoom);
+    const next = worldPixelToLatLng(startPixel.x - deltaX, startPixel.y - deltaY, startZoom);
+    setCenter(next);
+  }
+
+  function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    if ((event.target as HTMLElement | null)?.closest("button, a")) return;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startCenter: center,
+      startZoom: zoom,
+    };
+    setIsDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    if (!dragRef.current || dragRef.current.pointerId !== event.pointerId) return;
+    updateCenterFromPointer(event.clientX, event.clientY);
+  }
+
+  function stopDragging(event: React.PointerEvent<HTMLDivElement>) {
+    if (dragRef.current && dragRef.current.pointerId === event.pointerId) {
+      dragRef.current = null;
+      setIsDragging(false);
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // ignore release errors
+      }
+    }
+  }
+
+  function zoomMap(next: number) {
+    setZoom(Math.max(12, Math.min(19, next)));
+  }
+
+  function handleWheel(event: React.WheelEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const direction = event.deltaY < 0 ? 1 : -1;
+    zoomMap(zoom + direction);
+  }
+
+  function resetView() {
+    onClearSelection();
+    setCenter(destination);
+    setZoom(15);
+  }
 
   return (
     <div className="overflow-hidden rounded-[1.5rem] border border-white/10 bg-slate-950/90">
       <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
         <div>
           <div className="text-sm font-semibold text-white">Live map</div>
-          <div className="text-xs uppercase tracking-[0.3em] text-slate-400">OpenStreetMap tiles and real coordinates</div>
+          <div className="text-xs uppercase tracking-[0.3em] text-slate-400">Drag, zoom, and tap lots to inspect routes</div>
         </div>
-        <div className="text-xs text-slate-400">{destinationLabel}</div>
+        <div className="flex items-center gap-2 text-xs text-slate-400">
+          <span>{destinationLabel}</span>
+          <button
+            onClick={resetView}
+            className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-200 transition hover:border-cyan-300/30 hover:bg-cyan-400/10"
+          >
+            Reset view
+          </button>
+        </div>
       </div>
-      <div className="relative h-[360px] overflow-hidden bg-[#0a1020]">
-        <div className="absolute inset-0">
+      <div
+        ref={mapRef}
+        className={`relative h-[360px] overflow-hidden bg-[#0a1020] ${isDragging ? "cursor-grabbing" : "cursor-grab"}`}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={stopDragging}
+        onPointerCancel={stopDragging}
+        onWheel={handleWheel}
+      >
+        <div className="absolute inset-0 select-none">
           {tiles.map((tile) => (
             <img
               key={`${tile.x}-${tile.y}-${tile.z}`}
@@ -759,20 +935,52 @@ function RealMap({
             />
           ))}
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(34,211,238,0.1),_transparent_44%)]" />
+          {mapPath && (
+            <svg className="absolute inset-0 h-full w-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="route-line" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="rgb(34,211,238)" stopOpacity="0.85" />
+                  <stop offset="100%" stopColor="rgb(16,185,129)" stopOpacity="0.85" />
+                </linearGradient>
+              </defs>
+              <path d={mapPath} fill="none" stroke="url(#route-line)" strokeWidth="0.6" strokeDasharray="1.5 1" />
+            </svg>
+          )}
           {markers.map((marker) => (
-            <div
+            <button
               key={marker.id}
-              className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center ${marker.emphasis ? "z-20" : "z-10"}`}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                if (marker.kind === "origin") {
+                  setCenter(origin);
+                  onClearSelection();
+                  return;
+                }
+                if (marker.kind === "destination") {
+                  setCenter(destination);
+                  onClearSelection();
+                  return;
+                }
+                const lot = lots.find((item) => item.id === marker.id);
+                if (lot) {
+                  onSelectLot(lot);
+                  setCenter(lot.position);
+                }
+              }}
+              className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center rounded-full outline-none transition ${marker.emphasis ? "z-20" : "z-10"} ${marker.kind === "lot" ? "hover:scale-105" : ""}`}
               style={{ left: `${marker.left}%`, top: `${marker.top}%` }}
             >
               <div
-                className={`flex h-12 w-12 items-center justify-center rounded-full border text-[10px] font-black uppercase tracking-[0.22em] shadow-lg ${
+                className={`flex h-12 w-12 items-center justify-center rounded-full border text-[10px] font-black uppercase tracking-[0.22em] shadow-lg transition ${
                   marker.kind === "origin"
                     ? "border-cyan-200/80 bg-cyan-400 text-slate-950"
                     : marker.kind === "destination"
                       ? "border-amber-200/80 bg-amber-300 text-slate-950"
                       : marker.kind === "best"
                         ? "border-emerald-200/80 bg-emerald-400 text-slate-950"
+                        : marker.id === selectedLot?.id
+                          ? "border-cyan-100 bg-cyan-300 text-slate-950 ring-4 ring-cyan-300/30"
                         : marker.reservation_supported
                           ? "border-violet-200/70 bg-violet-400 text-slate-950"
                           : "border-rose-200/70 bg-rose-400 text-slate-950"
@@ -783,13 +991,27 @@ function RealMap({
               <div className="mt-2 max-w-[10rem] rounded-full border border-white/10 bg-slate-950/80 px-2 py-1 text-center text-[10px] text-slate-200">
                 {marker.label}
               </div>
-            </div>
+            </button>
           ))}
         </div>
 
         <div className="absolute left-4 top-4 rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-xs text-slate-300 backdrop-blur">
           <div className="font-semibold text-white">OSM live tiles</div>
           <div className="mt-1">Real-world street map</div>
+        </div>
+        <div className="absolute right-4 top-4 flex flex-col gap-2">
+          <button
+            onClick={() => zoomMap(zoom + 1)}
+            className="rounded-2xl border border-white/10 bg-slate-950/80 px-3 py-2 text-xs font-semibold text-slate-100 backdrop-blur transition hover:border-cyan-300/30 hover:bg-cyan-400/10"
+          >
+            Zoom in
+          </button>
+          <button
+            onClick={() => zoomMap(zoom - 1)}
+            className="rounded-2xl border border-white/10 bg-slate-950/80 px-3 py-2 text-xs font-semibold text-slate-100 backdrop-blur transition hover:border-cyan-300/30 hover:bg-cyan-400/10"
+          >
+            Zoom out
+          </button>
         </div>
         <div className="absolute bottom-4 left-4 right-4 grid gap-2 md:grid-cols-3">
           <div className="rounded-2xl border border-white/10 bg-slate-950/85 px-4 py-3 text-xs text-slate-300 backdrop-blur">
@@ -832,11 +1054,14 @@ function buildMarkers(
   destination: [number, number],
   lots: ParkingLot[],
   bestLot: ParkingLot | null,
+  selectedLot: ParkingLot | null,
   zoom: number,
+  center: [number, number],
+  viewport: { width: number; height: number },
 ) {
-  const centerLat = destination[0];
-  const centerLng = destination[1];
-  const centerTile = latLngToPixel(centerLat, centerLng, zoom);
+  const centerPixel = latLngToWorldPixel(center[0], center[1], zoom);
+  const width = viewport.width || 768;
+  const height = viewport.height || 360;
   const markers = [
     { id: "origin", kind: "origin", label: "You", coord: origin, reservation_supported: false, emphasis: true },
     { id: "destination", kind: "destination", label: "Destination", coord: destination, reservation_supported: false, emphasis: true },
@@ -851,11 +1076,12 @@ function buildMarkers(
   ];
 
   return markers.map((marker) => {
-    const pixel = latLngToPixel(marker.coord[0], marker.coord[1], zoom);
+    const pixel = latLngToWorldPixel(marker.coord[0], marker.coord[1], zoom);
     return {
       ...marker,
-      left: 50 + ((pixel.x - centerTile.x) / 768) * 100,
-      top: 50 + ((pixel.y - centerTile.y) / 768) * 100,
+      active: selectedLot?.id === marker.id,
+      left: 50 + ((pixel.x - centerPixel.x) / width) * 100,
+      top: 50 + ((pixel.y - centerPixel.y) / height) * 100,
     };
   });
 }
@@ -871,11 +1097,21 @@ function latLngToTile(lat: number, lng: number, zoom: number) {
 }
 
 function latLngToPixel(lat: number, lng: number, zoom: number) {
+  return latLngToWorldPixel(lat, lng, zoom);
+}
+
+function latLngToWorldPixel(lat: number, lng: number, zoom: number) {
   const scale = 256 * 2 ** zoom;
   const x = ((lng + 180) / 360) * scale;
   const sinLat = Math.sin((lat * Math.PI) / 180);
-  const y =
-    (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) *
-    scale;
+  const y = (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale;
   return { x, y };
+}
+
+function worldPixelToLatLng(x: number, y: number, zoom: number) {
+  const scale = 256 * 2 ** zoom;
+  const lng = (x / scale) * 360 - 180;
+  const n = Math.PI - (2 * Math.PI * y) / scale;
+  const lat = (180 / Math.PI) * Math.atan(Math.sinh(n));
+  return [lat, lng] as [number, number];
 }
