@@ -819,6 +819,7 @@ function RealMap({
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(15);
   const [isDragging, setIsDragging] = useState(false);
+  const [isSettling, setIsSettling] = useState(false);
 
   useEffect(() => {
     setCenter(selectedLot?.position ?? destination);
@@ -867,6 +868,8 @@ function RealMap({
     if (!dragRef.current) return;
     updateCenterFromPointer(dragRef.current.pendingX, dragRef.current.pendingY);
     setPanOffset({ x: 0, y: 0 });
+    setIsSettling(true);
+    window.setTimeout(() => setIsSettling(false), 180);
   }
 
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
@@ -920,6 +923,8 @@ function RealMap({
   function zoomMap(next: number) {
     setZoom(Math.max(12, Math.min(19, next)));
     setPanOffset({ x: 0, y: 0 });
+    setIsSettling(true);
+    window.setTimeout(() => setIsSettling(false), 180);
   }
 
   function handleWheel(event: React.WheelEvent<HTMLDivElement>) {
@@ -933,6 +938,8 @@ function RealMap({
     setCenter(destination);
     setZoom(15);
     setPanOffset({ x: 0, y: 0 });
+    setIsSettling(true);
+    window.setTimeout(() => setIsSettling(false), 180);
   }
 
   return (
@@ -963,7 +970,10 @@ function RealMap({
       >
         <div
           className="absolute inset-0 select-none will-change-transform"
-          style={{ transform: `translate3d(${panOffset.x}px, ${panOffset.y}px, 0)` }}
+          style={{
+            transform: `translate3d(${panOffset.x}px, ${panOffset.y}px, 0)`,
+            transition: isDragging || isSettling ? "none" : "transform 180ms ease-out",
+          }}
         >
           {tiles.map((tile) => (
             <img
