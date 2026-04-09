@@ -30,7 +30,7 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{reward:.2f}" for reward in rewards)
     print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}",
+        f"[END] success={str(success).lower()} steps={steps} score={score:.4f} rewards={rewards_str}",
         flush=True,
     )
 
@@ -193,7 +193,7 @@ def run_local_task(task_name: str, task_factory, client: Optional[OpenAI]) -> No
                 break
 
         score = float(env.grade()) if hasattr(env, "grade") else 0.0
-        score = max(0.0, min(1.0, score))
+        score = max(0.0001, min(0.9999, score))
         success = bool(getattr(env, "is_parked", False)) or score >= 0.5
     finally:
         _close_env(env)
