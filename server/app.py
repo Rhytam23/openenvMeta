@@ -44,6 +44,18 @@ class ReserveRequest(BaseModel):
     lot_id: str
 
 
+class MetricsResponse(BaseModel):
+    provider_name: str
+    provider_status: str
+    provider_warning: str | None
+    freshness_minutes: int
+    route_engine: str
+    live_data_enabled: bool
+    stability_index: float
+    alert_count: int
+    top_lot: str | None
+
+
 def env_factory():
     return _env_instance
 
@@ -133,6 +145,7 @@ async def get_assistant_provider():
         "live_data_enabled": _assistant_state.live_data_enabled,
         "destination_source": _assistant_state.destination_source,
         "freshness_minutes": _assistant_state.freshness_minutes,
+        "stability_index": _assistant_state.stability_index,
     }
 
 
@@ -144,7 +157,24 @@ async def get_assistant_health():
         "freshness_minutes": _assistant_state.freshness_minutes,
         "route_engine": _assistant_state.route_engine,
         "live_data_enabled": _assistant_state.live_data_enabled,
+        "stability_index": _assistant_state.stability_index,
+        "alerts": [alert.model_dump() for alert in _assistant_state.alerts],
     }
+
+
+@app.get("/assistant/metrics")
+async def get_assistant_metrics():
+    return MetricsResponse(
+        provider_name=_assistant_state.provider_name,
+        provider_status=_assistant_state.provider_status,
+        provider_warning=_assistant_state.provider_warning,
+        freshness_minutes=_assistant_state.freshness_minutes,
+        route_engine=_assistant_state.route_engine,
+        live_data_enabled=_assistant_state.live_data_enabled,
+        stability_index=_assistant_state.stability_index,
+        alert_count=len(_assistant_state.alerts),
+        top_lot=_assistant_state.best_option.lot.name if _assistant_state.best_option else None,
+    ).model_dump()
 
 
 @app.post("/assistant/resolve")
@@ -163,6 +193,7 @@ async def search_assistant(req: AssistantSearchRequest):
         req.origin,
         refresh=False,
         preference=req.preference,
+        trip_urgency=req.trip_urgency,
         destination_query=req.destination_query,
     )
     return _assistant_state.model_dump()
@@ -177,6 +208,7 @@ async def refresh_assistant(req: AssistantSearchRequest):
         req.origin,
         refresh=True,
         preference=req.preference,
+        trip_urgency=req.trip_urgency,
         destination_query=req.destination_query,
     )
     return _assistant_state.model_dump()

@@ -125,6 +125,7 @@ class ParkingLot(BaseModel):
 class ParkingRecommendation(BaseModel):
     lot: ParkingLot
     score: float = Field(ge=0.0, le=1.0)
+    demand_pressure: float = Field(ge=0.0, le=1.0)
     reason: str
     tradeoff: str
     distance_to_destination: float = Field(ge=0.0)
@@ -140,6 +141,7 @@ class AssistantPreset(BaseModel):
     destination: str
     mode: str
     preference: TripPreference
+    urgency: float = Field(ge=0.0, le=1.0)
     description: str
 
 
@@ -147,7 +149,15 @@ class AssistantSearchRequest(BaseModel):
     destination: str
     mode: str = "drive"
     preference: TripPreference = TripPreference.BALANCED
+    trip_urgency: float = Field(default=0.5, ge=0.0, le=1.0)
     origin: Tuple[float, float] | None = None
+
+
+class AssistantAlert(BaseModel):
+    id: str
+    severity: str
+    title: str
+    detail: str
 
 
 class AssistantHistoryEntry(BaseModel):
@@ -168,6 +178,7 @@ class AssistantState(BaseModel):
     custom_destination: bool
     travel_mode: str
     preference: TripPreference
+    trip_urgency: float = Field(ge=0.0, le=1.0)
     origin: Tuple[float, float]
     total_lots: int
     open_lots: int
@@ -180,6 +191,8 @@ class AssistantState(BaseModel):
     route_engine: str
     route_summary: str
     live_data_enabled: bool
+    stability_index: float = Field(ge=0.0, le=1.0)
+    alerts: List[AssistantAlert]
     presets: List[AssistantPreset]
     recent_searches: List[AssistantHistoryEntry]
     best_option: Optional[ParkingRecommendation] = None

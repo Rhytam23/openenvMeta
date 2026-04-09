@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import {
   AssistantHistoryEntry,
+  AssistantAlert,
   AssistantPreset,
   AssistantState,
   DestinationOption,
@@ -43,6 +44,7 @@ export function AssistantView() {
   const [destinationQuery, setDestinationQuery] = useState("");
   const [mode, setMode] = useState("drive");
   const [preference, setPreference] = useState<TripPreference>("balanced");
+  const [tripUrgency, setTripUrgency] = useState(0.55);
   const [originOverride, setOriginOverride] = useState<[number, number] | null>(null);
   const [selectedLotId, setSelectedLotId] = useState<string | null>(null);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
@@ -57,6 +59,7 @@ export function AssistantView() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const favoriteStorageKey = "openenv.parking.favorites.v1";
+  const destinationInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     void load();
@@ -68,7 +71,13 @@ export function AssistantView() {
     try {
       const raw = window.localStorage.getItem(favoriteStorageKey);
       if (raw) {
-        setFavorites(JSON.parse(raw) as FavoriteTrip[]);
+        const parsed = JSON.parse(raw) as FavoriteTrip[];
+        setFavorites(
+          parsed.map((item) => ({
+            ...item,
+            urgency: typeof item.urgency === "number" ? item.urgency : 0.55,
+          })),
+        );
       }
     } catch {
       setFavorites([]);
@@ -97,6 +106,7 @@ export function AssistantView() {
         setDestinationQuery("");
         setMode(stateRes.data.travel_mode);
         setPreference(stateRes.data.preference);
+        setTripUrgency(stateRes.data.trip_urgency);
         if (!originOverride) setOriginOverride(stateRes.data.origin);
       }
       setError("");
@@ -114,13 +124,27 @@ export function AssistantView() {
     }
   }
 
-  async function search(refresh = false, overrides?: Partial<{ destination: string; mode: string; preference: TripPreference }>) {
+  async function search(
+    refresh = false,
+    overrides?: Partial<{
+      destination: string;
+      destination_query: string | null | undefined;
+      mode: string;
+      preference: TripPreference;
+      trip_urgency: number;
+    }>,
+  ) {
+    const destinationQueryValue =
+      overrides && Object.prototype.hasOwnProperty.call(overrides, "destination_query")
+        ? overrides.destination_query
+        : destinationQuery.trim() || null;
     const origin = originOverride ?? assistant?.origin ?? undefined;
     const payload = {
       destination: overrides?.destination ?? destination,
-      destination_query: destinationQuery.trim() || null,
+      destination_query: destinationQueryValue,
       mode: overrides?.mode ?? mode,
       preference: overrides?.preference ?? preference,
+      trip_urgency: overrides?.trip_urgency ?? tripUrgency,
       origin,
     };
     setBusy(true);
@@ -131,6 +155,7 @@ export function AssistantView() {
       setDestination(response.data.destination);
       setMode(response.data.travel_mode);
       setPreference(response.data.preference);
+      setTripUrgency(response.data.trip_urgency);
       setError("");
     } catch {
       setError("Could not refresh recommendations.");
@@ -143,6 +168,7 @@ export function AssistantView() {
   const recommendations = assistant?.recommendations ?? [];
   const presets = assistant?.presets ?? [];
   const history = assistant?.recent_searches ?? [];
+  const alerts = assistant?.alerts ?? [];
   const currentOrigin = originOverride ?? assistant?.origin ?? null;
   const selectedDestination = destinations.find((item) => item.id === destination) ?? null;
   const filteredRecommendations = useMemo(() => {
@@ -164,6 +190,51 @@ export function AssistantView() {
   const selectedLot = selectedLotId ? visibleRecommendations.find((item) => item.lot.id === selectedLotId)?.lot ?? null : null;
   const topPicks = visibleRecommendations.slice(0, 3);
   const primaryRecommendation = visibleRecommendations[0] ?? null;
+  const hasSearchAlerts = alerts.length > 0 || (!visibleRecommendations.length && recommendations.length > 0);
+
+  useEffect(() => {
+    function focusTopPick(index: number) {
+      const pick = topPicks[index];
+      if (pick) {
+        setSelectedLotId(pick.lot.id);
+      }
+    }
+
+    function handleKeyboardShortcut(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+      if (event.key === "g") {
+        event.preventDefault();
+        useCurrentLocation();
+      } else if (event.key === "r") {
+        event.preventDefault();
+        void search(true);
+      } else if (event.key === "s") {
+        event.preventDefault();
+        saveFavorite();
+      } else if (event.key === "1") {
+        event.preventDefault();
+        focusTopPick(0);
+      } else if (event.key === "2") {
+        event.preventDefault();
+        focusTopPick(1);
+      } else if (event.key === "3") {
+        event.preventDefault();
+        focusTopPick(2);
+      } else if (event.key === "/") {
+        event.preventDefault();
+        destinationInputRef.current?.focus();
+      } else if (event.key === "Escape") {
+        setSelectedLotId(null);
+        setMobileActionsOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyboardShortcut);
+    return () => window.removeEventListener("keydown", handleKeyboardShortcut);
+  }, [topPicks, tripUrgency, destinationQuery, mode, preference, assistant?.origin, originOverride, favorites, destination, selectedDestination?.label]);
 
   function syncSelectedLot(nextState: AssistantState) {
     setSelectedLotId((current) => {
@@ -184,7 +255,7 @@ export function AssistantView() {
     setDestination(nextDestination);
     setDestinationQuery("");
     setSelectedLotId(null);
-    void search(false, { destination: nextDestination, mode, preference });
+    void search(false, { destination: nextDestination, destination_query: null, mode, preference });
   }
 
   async function applyPreset(preset: AssistantPreset) {
@@ -192,7 +263,15 @@ export function AssistantView() {
     setDestinationQuery("");
     setMode(preset.mode);
     setPreference(preset.preference);
-    await search(false, { destination: preset.destination, mode: preset.mode, preference: preset.preference });
+    setTripUrgency(preset.urgency);
+    setSelectedLotId(null);
+    await search(false, {
+      destination: preset.destination,
+      destination_query: null,
+      mode: preset.mode,
+      preference: preset.preference,
+      trip_urgency: preset.urgency,
+    });
   }
 
   function openDirectionsTo(target: [number, number], travelMode: string = mode) {
@@ -241,11 +320,12 @@ export function AssistantView() {
 
   function saveFavorite() {
     const next: FavoriteTrip = {
-      id: `${destination}-${mode}-${preference}`,
+      id: `${destination}-${mode}-${preference}-${Math.round(tripUrgency * 100)}`,
       label: selectedDestination?.label ?? destination,
       destination,
       mode,
       preference,
+      urgency: tripUrgency,
     };
     setFavorites((prev) => {
       const filtered = prev.filter((item) => item.id !== next.id);
@@ -258,7 +338,15 @@ export function AssistantView() {
     setDestinationQuery("");
     setMode(item.mode);
     setPreference(item.preference);
-    await search(false, { destination: item.destination, mode: item.mode, preference: item.preference });
+    setTripUrgency(item.urgency);
+    setSelectedLotId(null);
+    await search(false, {
+      destination: item.destination,
+      destination_query: null,
+      mode: item.mode,
+      preference: item.preference,
+      trip_urgency: item.urgency,
+    });
   }
 
   function rerunHistory(item: AssistantHistoryEntry) {
@@ -301,9 +389,12 @@ export function AssistantView() {
             <label className="block">
               <span className="mb-1 block text-xs uppercase tracking-[0.3em] text-slate-400">Search place</span>
               <input
+                ref={destinationInputRef}
                 value={destinationQuery}
                 onChange={(event) => setDestinationQuery(event.target.value)}
                 placeholder="Type any address, venue, or landmark"
+                aria-label="Search place"
+                autoComplete="off"
                 className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300"
               />
             </label>
@@ -322,36 +413,46 @@ export function AssistantView() {
               onChange={(value) => setPreference(value as TripPreference)}
               options={preferenceOptions}
             />
+            <SelectChoice
+              label="Urgency"
+              value={tripUrgency < 0.4 ? "0.25" : tripUrgency > 0.7 ? "0.85" : "0.55"}
+              onChange={(value) => setTripUrgency(Number(value))}
+              options={[
+                { value: "0.25", label: "Relaxed" },
+                { value: "0.55", label: "Balanced" },
+                { value: "0.85", label: "Urgent" },
+              ]}
+            />
             <button
-              className="rounded-2xl border border-cyan-300/30 bg-cyan-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-60"
+              className="min-h-12 rounded-2xl border border-cyan-300/30 bg-cyan-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-60"
               onClick={() => void search(false)}
               disabled={busy}
             >
               Search parking
             </button>
             <button
-              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10 disabled:opacity-60"
+              className="min-h-12 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10 disabled:opacity-60"
               onClick={() => void search(true)}
               disabled={busy}
             >
               Refresh availability
             </button>
             <button
-              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10 disabled:opacity-60 sm:col-span-2"
+              className="min-h-12 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10 disabled:opacity-60 sm:col-span-2"
               onClick={() => void search(false, { destination: destination, mode, preference })}
               disabled={busy}
             >
               Re-score current trip
             </button>
             <button
-              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10 disabled:opacity-60"
+              className="min-h-12 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10 disabled:opacity-60"
               onClick={useCurrentLocation}
               disabled={busy}
             >
               Use my location
             </button>
             <button
-              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10 disabled:opacity-60"
+              className="min-h-12 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10 disabled:opacity-60"
               onClick={saveFavorite}
               disabled={busy}
             >
@@ -364,7 +465,7 @@ export function AssistantView() {
           <div className="mb-5 rounded-[1.6rem] border border-white/10 bg-white/5 p-4">
             <div className="flex items-center gap-2 text-xs uppercase tracking-[0.35em] text-slate-400">
               <MapPin className="h-4 w-4" />
-              Favorites
+              Saved places
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               {favorites.map((item) => (
@@ -374,7 +475,7 @@ export function AssistantView() {
                   onClick={() => void applyFavorite(item)}
                   className="rounded-full border border-white/10 bg-slate-950/60 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10 disabled:opacity-50"
                 >
-                  {item.label}
+                  {item.label} · {item.preference} · {Math.round(item.urgency * 100)}%
                 </button>
               ))}
             </div>
@@ -406,11 +507,12 @@ export function AssistantView() {
           </div>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <Metric label="Open lots" value={`${assistant?.open_lots ?? "--"}/${assistant?.total_lots ?? "--"}`} accent="text-cyan-300" icon={<MapPin className="h-4 w-4" />} />
           <Metric label="Best score" value={recommended ? recommended.score.toFixed(2) : "--"} accent="text-emerald-300" icon={<Sparkles className="h-4 w-4" />} />
           <Metric label="Freshness" value={`${assistant?.freshness_minutes ?? "--"}m`} accent="text-amber-200" icon={<Clock3 className="h-4 w-4" />} />
           <Metric label="Mode" value={(assistant?.travel_mode ?? mode).toUpperCase()} accent="text-blue-200" icon={<Navigation className="h-4 w-4" />} />
+          <Metric label="Urgency" value={`${Math.round((assistant?.trip_urgency ?? tripUrgency) * 100)}%`} accent="text-fuchsia-200" icon={<Target className="h-4 w-4" />} />
         </div>
 
         <div className="mt-5 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
@@ -456,6 +558,7 @@ export function AssistantView() {
               <SummaryLine label="Freshness" value={`${assistant?.freshness_minutes ?? "--"}m`} />
               <SummaryLine label="Updated" value={assistant?.last_updated_at ? new Date(assistant.last_updated_at).toLocaleString() : "--"} />
               <SummaryLine label="Route engine" value={assistant?.route_engine ?? "--"} />
+              <SummaryLine label="Stability" value={`${Math.round((assistant?.stability_index ?? 0) * 100)}%`} />
             </div>
             {assistant?.provider_warning && (
               <div className="mt-3 rounded-2xl border border-amber-300/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
@@ -469,6 +572,30 @@ export function AssistantView() {
             )}
           </Panel>
         </div>
+
+        {hasSearchAlerts && (
+          <div className="mt-4 rounded-[1.6rem] border border-fuchsia-300/15 bg-fuchsia-500/5 p-4">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.35em] text-fuchsia-200">
+              <Activity className="h-4 w-4" />
+              Alerts
+            </div>
+            <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {alerts.map((alert) => (
+                <AlertCard key={alert.id} alert={alert} />
+              ))}
+              {!visibleRecommendations.length && recommendations.length > 0 && (
+                <AlertCard
+                  alert={{
+                    id: "filter-empty",
+                    severity: "warning",
+                    title: "Filters hide every lot",
+                    detail: "Relax one filter or reset them to bring recommendations back.",
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="mt-5 grid gap-4 xl:grid-cols-[1.02fr_0.98fr]">
           <Panel
@@ -547,8 +674,8 @@ export function AssistantView() {
                 )}
                 <div className="mt-2 text-xs uppercase tracking-[0.28em] text-slate-400">
                   {originOverride ? "GPS origin active" : "Using assistant default origin"}
-                  {" · "}
-                  Drag to pan, wheel to zoom, click markers to focus.
+                  {" | "}
+                  Drag to pan, wheel to zoom, arrows to move, +/- to zoom, click markers to focus.
                 </div>
               </div>
             ) : (
@@ -580,6 +707,7 @@ export function AssistantView() {
                   <InfoRow label="Trip dist." value={`${primaryRecommendation.travel_distance.toFixed(2)} km`} />
                   <InfoRow label="Dist. to dest" value={primaryRecommendation.distance_to_destination.toFixed(3)} />
                   <InfoRow label="From origin" value={`${primaryRecommendation.distance_from_origin.toFixed(2)} km`} />
+                  <InfoRow label="Demand" value={`${Math.round(primaryRecommendation.demand_pressure * 100)}%`} />
                 </div>
                 <p className="mt-4 text-sm text-cyan-50">{primaryRecommendation.reason}</p>
                 <p className="mt-2 text-sm text-slate-300">{primaryRecommendation.tradeoff}</p>
@@ -668,6 +796,7 @@ export function AssistantView() {
                     </div>
                     <div className="grid min-w-[15rem] grid-cols-2 gap-2 text-sm">
                       <MiniStat label="Score" value={item.score.toFixed(2)} />
+                      <MiniStat label="Demand" value={`${Math.round(item.demand_pressure * 100)}%`} />
                       <MiniStat label="Avail" value={`${item.lot.available_spots}`} />
                       <MiniStat label="Rate" value={`$${item.lot.hourly_rate.toFixed(2)}`} />
                       <MiniStat label="Conf." value={`${Math.round(item.lot.confidence * 100)}%`} />
@@ -774,6 +903,7 @@ export function AssistantView() {
             <Suggestion label="Reserve when possible" value="Prioritize lots with reservation support during busy times." />
             <Suggestion label="Refresh availability" value="Use refresh when your trip is closer to departure." />
             <Suggestion label="Tune priority" value="Switch between cheapest, closest, and reserve-first strategies." />
+            <Suggestion label="Keyboard shortcuts" value="Press g, r, s, 1-3, or / to move faster through the assistant." />
           </div>
         </Panel>
       </aside>
@@ -977,6 +1107,21 @@ function Suggestion({ label, value }: { label: string; value: string }) {
   );
 }
 
+function AlertCard({ alert }: { alert: AssistantAlert }) {
+  const tone =
+    alert.severity === "danger"
+      ? "border-rose-300/20 bg-rose-500/10 text-rose-50"
+      : alert.severity === "warning"
+        ? "border-amber-300/20 bg-amber-500/10 text-amber-50"
+        : "border-cyan-300/20 bg-cyan-500/10 text-cyan-50";
+  return (
+    <div className={`rounded-2xl border p-4 ${tone}`}>
+      <div className="text-sm font-semibold">{alert.title}</div>
+      <div className="mt-1 text-sm leading-6 opacity-90">{alert.detail}</div>
+    </div>
+  );
+}
+
 function HistoryRow({ item, onRerun }: { item: AssistantHistoryEntry; onRerun: (item: AssistantHistoryEntry) => void }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
@@ -1147,10 +1292,43 @@ function RealMap({
     window.setTimeout(() => setIsSettling(false), 180);
   }
 
+  function nudgeMap(x: number, y: number) {
+    const pixel = latLngToWorldPixel(center[0], center[1], zoom);
+    const next = worldPixelToLatLng(pixel.x + x, pixel.y + y, zoom);
+    setCenter(next);
+    setIsSettling(true);
+    window.setTimeout(() => setIsSettling(false), 160);
+  }
+
   function handleWheel(event: React.WheelEvent<HTMLDivElement>) {
     event.preventDefault();
     const direction = event.deltaY < 0 ? 1 : -1;
     setZoom((current) => Math.max(12, Math.min(19, current + direction)));
+  }
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      nudgeMap(0, -120);
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      nudgeMap(0, 120);
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      nudgeMap(-120, 0);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      nudgeMap(120, 0);
+    } else if (event.key === "+" || event.key === "=") {
+      event.preventDefault();
+      zoomMap(zoom + 1);
+    } else if (event.key === "-" || event.key === "_") {
+      event.preventDefault();
+      zoomMap(zoom - 1);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      resetView();
+    }
   }
 
   function resetView() {
@@ -1181,12 +1359,15 @@ function RealMap({
       </div>
       <div
         ref={mapRef}
-        className={`relative h-[360px] overflow-hidden bg-[#0a1020] ${isDragging ? "cursor-grabbing" : "cursor-grab"} touch-none`}
+        tabIndex={0}
+        aria-label="Interactive parking map"
+        className={`relative h-[360px] overflow-hidden bg-[#0a1020] ${isDragging ? "cursor-grabbing" : "cursor-grab"} touch-none outline-none focus:ring-2 focus:ring-cyan-300/40`}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={stopDragging}
         onPointerCancel={stopDragging}
         onWheel={handleWheel}
+        onKeyDown={handleKeyDown}
       >
         <div
           className="absolute inset-0 select-none will-change-transform"
@@ -1238,6 +1419,7 @@ function RealMap({
                   setCenter(lot.position);
                 }
               }}
+              aria-pressed={marker.id === selectedLot?.id}
               className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center rounded-full outline-none transition ${marker.emphasis ? "z-20" : "z-10"} ${marker.kind === "lot" ? "hover:scale-105" : ""}`}
               style={{ left: `${marker.left}%`, top: `${marker.top}%` }}
             >

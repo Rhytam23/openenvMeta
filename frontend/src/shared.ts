@@ -67,6 +67,7 @@ export interface ParkingLot {
 export interface Recommendation {
   lot: ParkingLot;
   score: number;
+  demand_pressure: number;
   reason: string;
   tradeoff: string;
   distance_to_destination: number;
@@ -82,6 +83,7 @@ export interface AssistantState {
   destination_position: [number, number];
   travel_mode: string;
   preference: TripPreference;
+  trip_urgency: number;
   origin: [number, number];
   total_lots: number;
   open_lots: number;
@@ -94,10 +96,19 @@ export interface AssistantState {
   live_data_enabled: boolean;
   route_engine: string;
   route_summary: string;
+  stability_index: number;
+  alerts: AssistantAlert[];
   presets: AssistantPreset[];
   recent_searches: AssistantHistoryEntry[];
   best_option: Recommendation | null;
   recommendations: Recommendation[];
+}
+
+export interface AssistantAlert {
+  id: string;
+  severity: "info" | "warning" | "danger";
+  title: string;
+  detail: string;
 }
 
 export interface AssistantPreset {
@@ -106,6 +117,7 @@ export interface AssistantPreset {
   destination: string;
   mode: string;
   preference: TripPreference;
+  urgency: number;
   description: string;
 }
 
@@ -125,6 +137,7 @@ export interface FavoriteTrip {
   destination: string;
   mode: string;
   preference: TripPreference;
+  urgency: number;
 }
 
 export const manhattan = (a: [number, number], b: [number, number]) =>

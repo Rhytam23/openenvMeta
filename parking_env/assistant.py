@@ -4,6 +4,7 @@ from typing import Dict, List, Tuple
 
 from .models import (
     AssistantHistoryEntry,
+    AssistantAlert,
     AssistantPreset,
     AssistantState,
     ParkingLot,
@@ -29,6 +30,7 @@ PRESETS: List[AssistantPreset] = [
         destination="downtown",
         mode="drive",
         preference=TripPreference.BALANCED,
+        urgency=0.55,
         description="Balanced access for everyday workday parking.",
     ),
     AssistantPreset(
@@ -37,6 +39,7 @@ PRESETS: List[AssistantPreset] = [
         destination="stadium",
         mode="drive",
         preference=TripPreference.RESERVE,
+        urgency=0.85,
         description="Favor reserve support and high availability for busy events.",
     ),
     AssistantPreset(
@@ -45,6 +48,7 @@ PRESETS: List[AssistantPreset] = [
         destination="hospital",
         mode="drive",
         preference=TripPreference.CLOSEST,
+        urgency=0.8,
         description="Minimize walking and stop quickly near the entrance.",
     ),
     AssistantPreset(
@@ -53,6 +57,7 @@ PRESETS: List[AssistantPreset] = [
         destination="university",
         mode="walk",
         preference=TripPreference.CHEAPEST,
+        urgency=0.35,
         description="Lower-cost lots with a short walk across campus.",
     ),
     AssistantPreset(
@@ -61,6 +66,7 @@ PRESETS: List[AssistantPreset] = [
         destination="airport",
         mode="drive",
         preference=TripPreference.RESERVE,
+        urgency=0.75,
         description="Reserve-first trip planning for longer journeys.",
     ),
 ]
@@ -97,6 +103,7 @@ def _score_lot(
     destination_point: Tuple[float, float],
     mode: str,
     preference: TripPreference,
+    trip_urgency: float,
 ) -> ParkingRecommendation:
     availability = lot.available_spots / max(1, lot.total_spots)
     origin_to_lot = estimate_route_metrics(origin, lot.position, "driving")
@@ -105,12 +112,23 @@ def _score_lot(
     distance_from_origin = origin_to_lot.distance_km
     travel_distance = distance_from_origin + distance_to_dest
     commute_pressure = distance_from_origin
-    walk_penalty = max(0, lot.walk_minutes - 3) * (0.03 if mode == "walk" else 0.02)
+    demand_pressure = min(
+        1.0,
+        round(
+            (1.0 - availability) * 0.54
+            + max(0.0, 0.16 - lot.confidence) * 0.9
+            + (0.12 if lot.reservation_supported else 0.18)
+            + min(0.12, lot.hourly_rate / 80.0),
+            4,
+        ),
+    )
+    urgency_weight = 0.35 + trip_urgency * 0.65
+    walk_penalty = max(0, lot.walk_minutes - 3) * (0.025 + trip_urgency * 0.02 if mode == "walk" else 0.018 + trip_urgency * 0.015)
     drive_minutes = max(lot.drive_minutes, round(origin_to_lot.duration_min))
-    drive_penalty = drive_minutes * (0.02 if mode == "drive" else 0.01)
-    price_penalty = min(lot.hourly_rate / 20.0, 0.2)
-    scarcity_penalty = 0.25 if lot.available_spots <= 10 else 0.0
-    confidence_bonus = lot.confidence * 0.18
+    drive_penalty = drive_minutes * (0.016 + trip_urgency * 0.02 if mode == "drive" else 0.01 + trip_urgency * 0.01)
+    price_penalty = min(lot.hourly_rate / 18.0, 0.22) * (0.8 + (1.0 - trip_urgency) * 0.4)
+    scarcity_penalty = 0.22 + demand_pressure * 0.18 if lot.available_spots <= max(3, round(lot.total_spots * 0.08)) else demand_pressure * 0.08
+    confidence_bonus = lot.confidence * 0.18 + (1.0 - demand_pressure) * 0.06
     proximity_bonus = max(0.0, 0.42 - distance_to_dest * 0.08)
     reserve_bonus = 0.12 if lot.reservation_supported else 0.0
     cheapest_bonus = max(0.0, 0.12 - lot.hourly_rate / 100.0)
@@ -119,12 +137,13 @@ def _score_lot(
     estimated_total_minutes = drive_minutes + lot.walk_minutes
 
     score = (
-        availability * 0.34
+        availability * (0.28 + (1.0 - trip_urgency) * 0.12)
+        + (1.0 - demand_pressure) * 0.22
         + confidence_bonus
-        + proximity_bonus
-        + reserve_bonus
-        + cheapest_bonus * (0.6 if preference == TripPreference.CHEAPEST else 0.3)
-        + closest_bonus * (0.6 if preference == TripPreference.CLOSEST else 0.25)
+        + proximity_bonus * urgency_weight
+        + reserve_bonus * (0.45 + trip_urgency * 0.45)
+        + cheapest_bonus * (0.7 if preference == TripPreference.CHEAPEST else 0.25 + (1.0 - trip_urgency) * 0.1)
+        + closest_bonus * (0.7 if preference == TripPreference.CLOSEST else 0.2 + trip_urgency * 0.1)
         - drive_penalty
         - walk_penalty
         - price_penalty
@@ -133,13 +152,19 @@ def _score_lot(
     )
 
     if preference == TripPreference.RESERVE:
-        score += 0.08 if lot.reservation_supported else -0.08
+        score += 0.12 if lot.reservation_supported else -0.1
     elif preference == TripPreference.CHEAPEST:
-        score += max(0.0, 0.16 - lot.hourly_rate / 50.0)
+        score += max(0.0, 0.18 - lot.hourly_rate / 45.0)
     elif preference == TripPreference.CLOSEST:
-        score += max(0.0, 0.16 - distance_to_dest * 0.15)
+        score += max(0.0, 0.18 - distance_to_dest * 0.15)
     else:
         score += 0.05 if lot.reservation_supported else 0.0
+
+    if trip_urgency >= 0.7:
+        score += 0.05 if lot.reservation_supported else -0.02
+        score += max(0.0, 0.08 - distance_to_dest * 0.08)
+    elif trip_urgency <= 0.3:
+        score += max(0.0, 0.08 - lot.hourly_rate / 80.0)
 
     score = max(0.0, min(1.0, round(score, 4)))
 
@@ -159,6 +184,7 @@ def _score_lot(
     return ParkingRecommendation(
         lot=lot,
         score=score,
+        demand_pressure=round(demand_pressure, 4),
         reason=reason,
         tradeoff=tradeoff,
         distance_to_destination=round(distance_to_dest, 3),
@@ -196,6 +222,76 @@ def _record_history(state: AssistantState) -> None:
     del _HISTORY[6:]
 
 
+def _stability_index(recommendations: List[ParkingRecommendation]) -> float:
+    if not recommendations:
+        return 0.0
+    best_id = recommendations[0].lot.id
+    lookback = _HISTORY[:5]
+    if not lookback:
+        return 0.5
+    matches = sum(1 for item in lookback if item.best_lot == best_id)
+    return max(0.0, min(1.0, round(matches / len(lookback), 4)))
+
+
+def _build_alerts(
+    provider_status: str,
+    provider_warning: str | None,
+    freshness_minutes: int,
+    route_source: str,
+    recommendations: List[ParkingRecommendation],
+    trip_urgency: float,
+) -> List[AssistantAlert]:
+    alerts: List[AssistantAlert] = []
+    if provider_status != "healthy":
+        alerts.append(
+            AssistantAlert(
+                id="provider-status",
+                severity="warning",
+                title="Live data is degraded",
+                detail=provider_warning or "The live parking feed is falling back to cached or demo data.",
+            )
+        )
+    if freshness_minutes >= 12:
+        alerts.append(
+            AssistantAlert(
+                id="freshness",
+                severity="warning",
+                title="Data is getting stale",
+                detail="Refresh before you leave so the ranking reflects the latest availability.",
+            )
+        )
+    if route_source != "OSRM":
+        alerts.append(
+            AssistantAlert(
+                id="route-fallback",
+                severity="info",
+                title="Route timing is estimated",
+                detail="The route service is unavailable, so travel times are based on a local estimate.",
+            )
+        )
+    if recommendations:
+        top = recommendations[0].lot
+        if top.available_spots <= max(3, round(top.total_spots * 0.08)):
+            alerts.append(
+                AssistantAlert(
+                    id="scarcity",
+                    severity="warning",
+                    title="Best lot is filling up",
+                    detail=f"{top.name} only has {top.available_spots} open spots left.",
+                )
+            )
+        if trip_urgency >= 0.7 and not top.reservation_supported:
+            alerts.append(
+                AssistantAlert(
+                    id="reserve",
+                    severity="info",
+                    title="Reservation support is limited",
+                    detail="High urgency trips work best when the top lot can be reserved ahead of time.",
+                )
+            )
+    return alerts
+
+
 def get_recent_searches() -> List[AssistantHistoryEntry]:
     return list(_HISTORY)
 
@@ -206,10 +302,12 @@ def build_assistant_state(
     origin: Tuple[float, float] | None = None,
     refresh: bool = False,
     preference: TripPreference = TripPreference.BALANCED,
+    trip_urgency: float = 0.5,
     destination_query: str | None = None,
 ) -> AssistantState:
     if not isinstance(preference, TripPreference):
         preference = TripPreference(preference)
+    trip_urgency = max(0.0, min(1.0, float(trip_urgency)))
     destination_label, destination_point, destination_source, custom_destination = _resolve_destination(destination, destination_query)
     origin = origin or (40.7138, -74.0065)
     provider = get_provider()
@@ -227,12 +325,14 @@ def build_assistant_state(
             provider_status = "degraded"
 
     recommendations = sorted(
-        [_score_lot(lot, origin, destination_point, mode, preference) for lot in lots],
+        [_score_lot(lot, origin, destination_point, mode, preference, trip_urgency) for lot in lots],
         key=lambda item: item.score,
         reverse=True,
     )
     open_lots = sum(1 for lot in lots if lot.available_spots > 0)
     best_option = recommendations[0] if recommendations else None
+    stability_index = _stability_index(recommendations)
+    alerts = _build_alerts(provider_status, provider_warning, snapshot.freshness_minutes, route_probe.source.upper(), recommendations, trip_urgency)
     state = AssistantState(
         destination=destination.lower(),
         destination_label=destination_label,
@@ -241,6 +341,7 @@ def build_assistant_state(
         custom_destination=custom_destination,
         travel_mode=mode,
         preference=preference,
+        trip_urgency=trip_urgency,
         origin=origin,
         total_lots=len(lots),
         open_lots=open_lots,
@@ -253,6 +354,8 @@ def build_assistant_state(
         route_engine=route_probe.source.upper(),
         route_summary=_route_summary(destination_label, preference, mode),
         live_data_enabled=snapshot.live_data_enabled,
+        stability_index=stability_index,
+        alerts=alerts,
         presets=PRESETS,
         recent_searches=get_recent_searches(),
         best_option=best_option,
