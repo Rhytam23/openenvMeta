@@ -1169,7 +1169,13 @@ function RealMap({
     startZoom: number;
     pendingX: number;
     pendingY: number;
+    lastX: number;
+    lastY: number;
+    lastT: number;
+    vx: number;
+    vy: number;
     frameId: number | null;
+    inertiaFrame: number | null;
   } | null>(null);
   const [viewport, setViewport] = useState({ width: 768, height: 360 });
   const [center, setCenter] = useState<[number, number]>(selectedLot?.position ?? destination);
@@ -1232,6 +1238,13 @@ function RealMap({
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     if ((event.target as HTMLElement | null)?.closest("button, a")) return;
+    if (dragRef.current) {
+      const activeDrag = dragRef.current;
+      if (activeDrag.inertiaFrame !== null) {
+        window.cancelAnimationFrame(activeDrag.inertiaFrame);
+        activeDrag.inertiaFrame = null;
+      }
+    }
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -1240,7 +1253,13 @@ function RealMap({
       startZoom: zoom,
       pendingX: event.clientX,
       pendingY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      lastT: performance.now(),
+      vx: 0,
+      vy: 0,
       frameId: null,
+      inertiaFrame: null,
     };
     setIsDragging(true);
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -1248,6 +1267,13 @@ function RealMap({
 
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
     if (!dragRef.current || dragRef.current.pointerId !== event.pointerId) return;
+    const now = performance.now();
+    const dt = Math.max(16, now - dragRef.current.lastT);
+    dragRef.current.vx = (event.clientX - dragRef.current.lastX) / dt;
+    dragRef.current.vy = (event.clientY - dragRef.current.lastY) / dt;
+    dragRef.current.lastX = event.clientX;
+    dragRef.current.lastY = event.clientY;
+    dragRef.current.lastT = now;
     dragRef.current.pendingX = event.clientX;
     dragRef.current.pendingY = event.clientY;
     if (dragRef.current.frameId !== null) return;
@@ -1267,7 +1293,8 @@ function RealMap({
         window.cancelAnimationFrame(dragRef.current.frameId);
       }
       commitDrag();
-      dragRef.current = null;
+      startInertia();
+      dragRef.current.pointerId = -1;
       setIsDragging(false);
       try {
         event.currentTarget.releasePointerCapture(event.pointerId);
@@ -1294,8 +1321,34 @@ function RealMap({
 
   function handleWheel(event: React.WheelEvent<HTMLDivElement>) {
     event.preventDefault();
+    const rect = mapRef.current?.getBoundingClientRect();
+    if (!rect) {
+      const direction = event.deltaY < 0 ? 1 : -1;
+      setZoom((current) => Math.max(12, Math.min(19, current + direction)));
+      return;
+    }
     const direction = event.deltaY < 0 ? 1 : -1;
-    setZoom((current) => Math.max(12, Math.min(19, current + direction)));
+    const nextZoom = Math.max(12, Math.min(19, zoom + direction));
+    if (nextZoom === zoom) return;
+    const centerPixel = latLngToWorldPixel(center[0], center[1], zoom);
+    const focusX = event.clientX - rect.left;
+    const focusY = event.clientY - rect.top;
+    const offsetX = focusX - rect.width / 2;
+    const offsetY = focusY - rect.height / 2;
+    const worldPoint = {
+      x: centerPixel.x + offsetX,
+      y: centerPixel.y + offsetY,
+    };
+    const pointLatLng = worldPixelToLatLng(worldPoint.x, worldPoint.y, zoom);
+    const pointPixelNext = latLngToWorldPixel(pointLatLng[0], pointLatLng[1], nextZoom);
+    const nextCenterPixel = {
+      x: pointPixelNext.x - offsetX,
+      y: pointPixelNext.y - offsetY,
+    };
+    setZoom(nextZoom);
+    setCenter(worldPixelToLatLng(nextCenterPixel.x, nextCenterPixel.y, nextZoom));
+    setIsSettling(true);
+    window.setTimeout(() => setIsSettling(false), 140);
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
@@ -1324,12 +1377,47 @@ function RealMap({
   }
 
   function resetView() {
+    if (dragRef.current) {
+      const activeDrag = dragRef.current;
+      if (activeDrag.inertiaFrame !== null) {
+        window.cancelAnimationFrame(activeDrag.inertiaFrame);
+        activeDrag.inertiaFrame = null;
+      }
+    }
     onClearSelection();
     setCenter(destination);
     setZoom(15);
     setPanOffset({ x: 0, y: 0 });
     setIsSettling(true);
     window.setTimeout(() => setIsSettling(false), 180);
+  }
+
+  function startInertia() {
+    if (!dragRef.current) return;
+    const drag = dragRef.current;
+    const { vx, vy } = drag;
+    const speed = Math.sqrt(vx * vx + vy * vy);
+    if (speed < 0.15) return;
+    const step = () => {
+      drag.vx *= 0.92;
+      drag.vy *= 0.92;
+      const nextSpeed = Math.sqrt(drag.vx * drag.vx + drag.vy * drag.vy);
+      if (nextSpeed < 0.05) {
+        drag.inertiaFrame = null;
+        return;
+      }
+      const deltaX = drag.vx * 24;
+      const deltaY = drag.vy * 24;
+      setCenter((currentCenter) => {
+        const startPixel = latLngToWorldPixel(currentCenter[0], currentCenter[1], zoom);
+        return worldPixelToLatLng(startPixel.x - deltaX, startPixel.y - deltaY, zoom);
+      });
+      drag.inertiaFrame = window.requestAnimationFrame(step);
+    };
+    if (drag.inertiaFrame !== null) {
+      window.cancelAnimationFrame(drag.inertiaFrame);
+    }
+    drag.inertiaFrame = window.requestAnimationFrame(step);
   }
 
   return (
