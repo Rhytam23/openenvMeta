@@ -132,13 +132,14 @@ export function AssistantView() {
       mode: string;
       preference: TripPreference;
       trip_urgency: number;
+      origin: [number, number];
     }>,
   ) {
     const destinationQueryValue =
       overrides && Object.prototype.hasOwnProperty.call(overrides, "destination_query")
         ? overrides.destination_query
         : destinationQuery.trim() || null;
-    const origin = originOverride ?? assistant?.origin ?? undefined;
+    const origin = overrides?.origin ?? originOverride ?? assistant?.origin ?? undefined;
     const payload = {
       destination: overrides?.destination ?? destination,
       destination_query: destinationQueryValue,
@@ -186,11 +187,11 @@ export function AssistantView() {
       return true;
     });
   }, [recommendations, filters]);
-  const visibleRecommendations = filteredRecommendations.length ? filteredRecommendations : recommendations;
+  const visibleRecommendations = filteredRecommendations;
   const selectedLot = selectedLotId ? visibleRecommendations.find((item) => item.lot.id === selectedLotId)?.lot ?? null : null;
   const topPicks = visibleRecommendations.slice(0, 3);
   const primaryRecommendation = visibleRecommendations[0] ?? null;
-  const hasSearchAlerts = alerts.length > 0 || (!visibleRecommendations.length && recommendations.length > 0);
+  const hasSearchAlerts = alerts.length > 0 || (filteredRecommendations.length === 0 && recommendations.length > 0);
 
   useEffect(() => {
     function focusTopPick(index: number) {
@@ -306,9 +307,17 @@ export function AssistantView() {
     setBusy(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        setOriginOverride([position.coords.latitude, position.coords.longitude]);
+        const nextOrigin: [number, number] = [position.coords.latitude, position.coords.longitude];
+        setOriginOverride(nextOrigin);
         setError("");
-        setBusy(false);
+        void search(false, {
+          destination,
+          destination_query: destinationQuery.trim() || null,
+          mode,
+          preference,
+          trip_urgency: tripUrgency,
+          origin: nextOrigin,
+        }).finally(() => setBusy(false));
       },
       () => {
         setError("Location access was denied.");
@@ -321,7 +330,7 @@ export function AssistantView() {
   function saveFavorite() {
     const next: FavoriteTrip = {
       id: `${destination}-${mode}-${preference}-${Math.round(tripUrgency * 100)}`,
-      label: selectedDestination?.label ?? destination,
+      label: assistant?.destination_label ?? selectedDestination?.label ?? destination,
       destination,
       mode,
       preference,
@@ -1184,7 +1193,16 @@ function RealMap({
   const [isDragging, setIsDragging] = useState(false);
   const [isSettling, setIsSettling] = useState(false);
 
+  function cancelInertia() {
+    const activeDrag = dragRef.current;
+    if (activeDrag && activeDrag.inertiaFrame !== null) {
+      window.cancelAnimationFrame(activeDrag.inertiaFrame);
+      activeDrag.inertiaFrame = null;
+    }
+  }
+
   useEffect(() => {
+    cancelInertia();
     setCenter(selectedLot?.position ?? destination);
     setPanOffset({ x: 0, y: 0 });
   }, [destination, selectedLot?.position?.[0], selectedLot?.position?.[1]]);
@@ -1238,13 +1256,7 @@ function RealMap({
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     if ((event.target as HTMLElement | null)?.closest("button, a")) return;
-    if (dragRef.current) {
-      const activeDrag = dragRef.current;
-      if (activeDrag.inertiaFrame !== null) {
-        window.cancelAnimationFrame(activeDrag.inertiaFrame);
-        activeDrag.inertiaFrame = null;
-      }
-    }
+    cancelInertia();
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -1377,13 +1389,7 @@ function RealMap({
   }
 
   function resetView() {
-    if (dragRef.current) {
-      const activeDrag = dragRef.current;
-      if (activeDrag.inertiaFrame !== null) {
-        window.cancelAnimationFrame(activeDrag.inertiaFrame);
-        activeDrag.inertiaFrame = null;
-      }
-    }
+    cancelInertia();
     onClearSelection();
     setCenter(destination);
     setZoom(15);

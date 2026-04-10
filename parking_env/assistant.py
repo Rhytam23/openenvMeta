@@ -304,6 +304,7 @@ def build_assistant_state(
     preference: TripPreference = TripPreference.BALANCED,
     trip_urgency: float = 0.5,
     destination_query: str | None = None,
+    record_history: bool = True,
 ) -> AssistantState:
     if not isinstance(preference, TripPreference):
         preference = TripPreference(preference)
@@ -361,6 +362,7 @@ def build_assistant_state(
         best_option=best_option,
         recommendations=recommendations,
     )
-    _record_history(state)
+    if record_history:
+        _record_history(state)
     return state.model_copy(update={"recent_searches": get_recent_searches()})
 

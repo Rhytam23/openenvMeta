@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from openenv.core.env_server import create_fastapi_app
-from parking_env.assistant import DESTINATIONS, PRESETS, build_assistant_state, get_recent_searches
+from parking_env.assistant import DESTINATIONS, PRESETS, build_assistant_state, get_recent_searches, _resolve_destination
 from parking_env.geo import geocode_destination
 from parking_env.core import SmartParkingEnv
 from parking_env.models import Action, AssistantSearchRequest, Observation
@@ -33,7 +33,7 @@ TASKS = {
 _task_instance = TaskEasy()
 _env_instance = _task_instance.env
 _task_instance.reset()
-_assistant_state = build_assistant_state("downtown")
+_assistant_state = build_assistant_state("downtown", record_history=False)
 
 
 class ResetRequest(BaseModel):
@@ -179,9 +179,13 @@ async def get_assistant_metrics():
 
 @app.post("/assistant/resolve")
 async def resolve_destination(req: AssistantSearchRequest):
-    query = (req.destination_query or req.destination).strip()
-    label, coords, source = geocode_destination(query)
-    return {"label": label, "position": coords, "source": source, "custom": True}
+    label, coords, source, custom = _resolve_destination(req.destination, req.destination_query)
+    return {
+        "label": label,
+        "position": coords,
+        "source": source,
+        "custom": custom,
+    }
 
 
 @app.post("/assistant/search")

@@ -11,6 +11,16 @@ def _reset_history() -> None:
     assistant_module._HISTORY.clear()
 
 
+def test_presets_resolve_before_geocoding():
+    _reset_history()
+    label, coords, source, custom = assistant_module._resolve_destination("downtown")
+
+    assert label == "Connaught Place, New Delhi"
+    assert coords == (28.6315, 77.2167)
+    assert source == "preset"
+    assert custom is False
+
+
 def test_demand_scoring_stays_bounded_and_changes_with_urgency():
     _reset_history()
     relaxed = assistant_module.build_assistant_state("downtown", trip_urgency=0.15)
@@ -75,3 +85,11 @@ def test_recommendation_stability_updates_with_repeated_searches():
     assert 0.0 <= first.stability_index <= 1.0
     assert 0.0 <= second.stability_index <= 1.0
     assert len(assistant_module._HISTORY) == 2
+
+
+def test_initial_state_can_skip_history_seed():
+    _reset_history()
+    state = assistant_module.build_assistant_state("downtown", record_history=False)
+
+    assert len(assistant_module._HISTORY) == 0
+    assert state.recent_searches == []
