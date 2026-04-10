@@ -79,7 +79,7 @@ def _destination(destination: str) -> Tuple[str, Tuple[float, float]]:
 
 
 def _resolve_destination(destination: str, destination_query: str | None = None) -> Tuple[str, Tuple[float, float], str, bool]:
-    query = (destination_query or destination or "").strip()
+    query = (destination_query or "").strip()
     if query:
         try:
             label, coords, source = geocode_destination(query)
