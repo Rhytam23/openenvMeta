@@ -5,7 +5,7 @@ from parking_env.models import ActionType, Direction
 def test_simulation():
     env = SmartParkingEnv(grid_size=10, num_spots=5, max_steps=50)
     obs = env.reset()
-    print(f"Initial Observation: {obs.dict()}")
+    print(f"Initial Observation: {obs.model_dump()}")
     
     total_reward = 0
     done = False
