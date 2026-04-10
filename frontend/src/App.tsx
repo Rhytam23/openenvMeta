@@ -1,11 +1,6 @@
-import { useState } from "react";
-import type { ReactNode } from "react";
 import { AssistantView } from "./AssistantView";
-import { SimulatorView } from "./SimulatorView";
 
 function App() {
-  const [view, setView] = useState<"assistant" | "training">("assistant");
-
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#050816] text-slate-100">
       <div className="pointer-events-none absolute inset-0">
@@ -26,44 +21,15 @@ function App() {
             </div>
           </div>
           <div className="ml-0 flex flex-wrap items-center gap-2 lg:ml-auto">
-            <TabButton active={view === "assistant"} onClick={() => setView("assistant")}>
-              Parking Assistant
-            </TabButton>
-            <TabButton active={view === "training"} onClick={() => setView("training")}>
-              Training Simulator
-            </TabButton>
             <div className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-[10px] uppercase tracking-[0.35em] text-cyan-100">
-              Live demo feed
+              Live parking assistant
             </div>
           </div>
         </div>
 
-        {view === "assistant" ? <AssistantView /> : <SimulatorView />}
+        <AssistantView />
       </div>
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
-        active
-          ? "border-cyan-300/40 bg-cyan-400 text-slate-950 shadow-[0_0_20px_rgba(34,211,238,0.25)]"
-          : "border-white/10 bg-white/5 text-slate-200 hover:border-cyan-300/40 hover:bg-cyan-400/10"
-      }`}
-    >
-      {children}
-    </button>
   );
 }
 

@@ -1,5 +1,5 @@
 ---
-title: Smart Parking Simulation
+title: Smart Parking Assistant
 emoji: 🚗
 colorFrom: blue
 colorTo: indigo
@@ -10,12 +10,12 @@ app_port: 7860
 pinned: false
 ---
 
-# Smart Parking Simulation (OpenEnv)
+# Smart Parking Assistant (OpenEnv)
 
-A production-grade, OpenEnv-compliant simulation environment for urban parking discovery and reservation. This project aims to model real-world congestion challenges and evaluate intelligent agents on their ability to efficiently navigate and secure parking in a dynamic city grid.
+A production-grade, OpenEnv-compliant parking assistant for urban parking discovery and reservation. This project models real-world congestion challenges and evaluates intelligent agents on their ability to efficiently navigate and secure parking in a live city workflow.
 
 ## 1. Overview
-The **Smart Parking Simulation** models a 10x10 city grid where agents must navigate roads, identify available parking spots, and handle reservations to secure a space. It emphasizes trajectory-based efficiency and optimal decision-making under resource constraints.
+The **Smart Parking Assistant** models a parking decision workflow where agents must identify available parking spots, handle reservations, and choose efficient routes to secure a space. It emphasizes trajectory-based efficiency and optimal decision-making under resource constraints.
 
 ## 2. Environment Design
 
@@ -72,7 +72,7 @@ docker run -p 7860:7860 smart-parking:openenv
 
 ## 5. Usage
 
-### Run Simulation Server
+### Run Server
 ```bash
 python -m server.app
 ```
