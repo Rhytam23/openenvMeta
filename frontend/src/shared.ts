@@ -91,6 +91,7 @@ export interface AssistantState {
   open_lots: number;
   data_source: string;
   last_updated_at: string;
+  provider_health?: ProviderHealth | null;
   freshness_minutes: number;
   provider_name: string;
   provider_status: string;
@@ -128,6 +129,7 @@ export interface AssistantHistoryEntry {
   destination: string;
   destination_label: string;
   destination_query: string | null;
+  query_string?: string | null;
   mode: string;
   preference: TripPreference;
   origin: [number, number] | null;
@@ -142,10 +144,18 @@ export interface FavoriteTrip {
   label: string;
   destination: string;
   destination_query: string | null;
+  query_string?: string | null;
   mode: string;
   preference: TripPreference;
   origin: [number, number] | null;
   urgency: number;
+}
+
+export interface ProviderHealth {
+  provider_name: string;
+  status: string;
+  last_updated: string;
+  warning?: string | null;
 }
 
 export const manhattan = (a: [number, number], b: [number, number]) =>

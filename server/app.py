@@ -17,9 +17,9 @@ if str(ROOT) not in sys.path:
 
 from openenv.core.env_server import create_fastapi_app
 from parking_env.assistant import DESTINATIONS, PRESETS, build_assistant_state, get_recent_searches, _resolve_destination
-from parking_env.geo import geocode_destination
 from parking_env.core import SmartParkingEnv
 from parking_env.models import Action, AssistantSearchRequest, Observation
+from parking_env.providers import get_provider
 from tasks.task_easy import TaskEasy
 from tasks.task_hard import TaskHard
 from tasks.task_medium import TaskMedium
@@ -42,6 +42,12 @@ class ResetRequest(BaseModel):
 
 class ReserveRequest(BaseModel):
     lot_id: str
+    user_data: dict[str, str] | None = None
+
+
+class NavigateRequest(BaseModel):
+    lot_id: str
+    travel_mode: str = "drive"
 
 
 class MetricsResponse(BaseModel):
@@ -58,6 +64,24 @@ class MetricsResponse(BaseModel):
 
 def env_factory():
     return _env_instance
+
+
+def _find_recommendation(lot_id: str):
+    for recommendation in _assistant_state.recommendations:
+        if recommendation.lot.id == lot_id:
+            return recommendation
+    return None
+
+
+def _build_navigation_url(lot, travel_mode: str) -> str:
+    origin = _assistant_state.origin
+    mode = "walking" if travel_mode == "walk" else "driving"
+    return (
+        "https://www.google.com/maps/dir/?api=1"
+        f"&origin={origin[0]},{origin[1]}"
+        f"&destination={lot.position[0]},{lot.position[1]}"
+        f"&travelmode={mode}"
+    )
 
 
 app = create_fastapi_app(
@@ -141,6 +165,7 @@ async def get_assistant_provider():
         "provider_name": _assistant_state.provider_name,
         "provider_status": _assistant_state.provider_status,
         "provider_warning": _assistant_state.provider_warning,
+        "provider_health": _assistant_state.provider_health.model_dump() if _assistant_state.provider_health else None,
         "route_engine": _assistant_state.route_engine,
         "live_data_enabled": _assistant_state.live_data_enabled,
         "destination_source": _assistant_state.destination_source,
@@ -154,6 +179,7 @@ async def get_assistant_health():
     return {
         "status": _assistant_state.provider_status,
         "warning": _assistant_state.provider_warning,
+        "provider_health": _assistant_state.provider_health.model_dump() if _assistant_state.provider_health else None,
         "freshness_minutes": _assistant_state.freshness_minutes,
         "route_engine": _assistant_state.route_engine,
         "live_data_enabled": _assistant_state.live_data_enabled,
@@ -220,15 +246,45 @@ async def refresh_assistant(req: AssistantSearchRequest):
 
 @app.post("/assistant/reserve")
 async def reserve_lot(req: ReserveRequest):
+    return await reserve(req)
+
+
+@app.post("/reserve")
+async def reserve(req: ReserveRequest):
     lot_id = req.lot_id.strip()
-    for recommendation in _assistant_state.recommendations:
-        if recommendation.lot.id == lot_id:
-            if recommendation.lot.booking_url:
-                return {"status": "redirect", "url": recommendation.lot.booking_url, "lot": recommendation.lot.model_dump()}
-            if recommendation.lot.reservation_supported:
-                return {"status": "search", "url": f"https://www.google.com/search?q={recommendation.lot.name}+parking+reservation", "lot": recommendation.lot.model_dump()}
-            return {"status": "unavailable", "lot": recommendation.lot.model_dump()}
-    raise HTTPException(status_code=404, detail="Lot not found")
+    recommendation = _find_recommendation(lot_id)
+    if not recommendation:
+        raise HTTPException(status_code=404, detail="Lot not found")
+    provider = get_provider()
+    result = provider.reserve(lot_id, req.user_data or {})
+    if result.get("status") == "unavailable" and recommendation.lot.reservation_supported:
+        result = {
+            "status": "search",
+            "url": recommendation.lot.booking_url or f"https://www.google.com/search?q={recommendation.lot.name}+parking+reservation",
+            "lot": recommendation.lot.model_dump(),
+        }
+    if "lot" not in result:
+        result["lot"] = recommendation.lot.model_dump()
+    return result
+
+
+@app.post("/assistant/navigate")
+async def assistant_navigate(req: NavigateRequest):
+    return await navigate(req)
+
+
+@app.post("/navigate")
+async def navigate(req: NavigateRequest):
+    lot_id = req.lot_id.strip()
+    recommendation = _find_recommendation(lot_id)
+    if not recommendation:
+        raise HTTPException(status_code=404, detail="Lot not found")
+    lot = recommendation.lot
+    return {
+        "status": "redirect",
+        "url": lot.map_url or _build_navigation_url(lot, req.travel_mode),
+        "lot": lot.model_dump(),
+    }
 
 
 dist_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")

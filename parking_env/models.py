@@ -160,11 +160,19 @@ class AssistantAlert(BaseModel):
     detail: str
 
 
+class ProviderHealth(BaseModel):
+    provider_name: str
+    status: str
+    last_updated: str
+    warning: Optional[str] = None
+
+
 class AssistantHistoryEntry(BaseModel):
     id: str
     destination: str
     destination_label: str
     destination_query: Optional[str] = None
+    query_string: Optional[str] = None
     mode: str
     preference: TripPreference
     origin: Tuple[float, float] | None = None
@@ -192,6 +200,7 @@ class AssistantState(BaseModel):
     provider_status: str = "healthy"
     provider_warning: Optional[str] = None
     last_updated_at: str
+    provider_health: Optional[ProviderHealth] = None
     freshness_minutes: int
     route_engine: str
     route_summary: str
@@ -209,6 +218,7 @@ class FavoriteTrip(BaseModel):
     label: str
     destination: str
     destination_query: Optional[str] = None
+    query_string: Optional[str] = None
     mode: str
     preference: TripPreference
     origin: Tuple[float, float] | None = None

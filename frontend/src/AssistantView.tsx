@@ -57,7 +57,9 @@ export function AssistantView() {
   });
   const [favorites, setFavorites] = useState<FavoriteTrip[]>([]);
   const [busy, setBusy] = useState(false);
+  const [actionState, setActionState] = useState<"reserving" | "navigating" | null>(null);
   const [error, setError] = useState("");
+  const isBusy = busy || actionState !== null;
   const favoriteStorageKey = "openenv.parking.favorites.v1";
   const destinationInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -284,21 +286,56 @@ export function AssistantView() {
     window.open(mapsUrl, "_blank", "noopener,noreferrer");
   }
 
-  function openLotDirections(lot: ParkingLot) {
-    if (lot.map_url) {
-      window.open(lot.map_url, "_blank", "noopener,noreferrer");
-      return;
+  async function navigateToLot(lot: ParkingLot) {
+    setActionState("navigating");
+    try {
+      const response = await api.post<{ status: string; url?: string; lot?: ParkingLot }>("/navigate", {
+        lot_id: lot.id,
+        travel_mode: mode,
+      });
+      const url = response.data.url ?? lot.map_url;
+      if (url) {
+        window.open(url, "_blank", "noopener,noreferrer");
+      } else {
+        openDirectionsTo(lot.position);
+      }
+      setError("");
+    } catch {
+      if (lot.map_url) {
+        window.open(lot.map_url, "_blank", "noopener,noreferrer");
+      } else {
+        openDirectionsTo(lot.position);
+      }
+    } finally {
+      setActionState(null);
     }
-    openDirectionsTo(lot.position);
   }
 
-  function openLotReservation(lot: ParkingLot) {
-    if (lot.booking_url) {
-      window.open(lot.booking_url, "_blank", "noopener,noreferrer");
-      return;
+  async function reserveLot(lot: ParkingLot) {
+    setActionState("reserving");
+    try {
+      const response = await api.post<{ status: string; url?: string; lot?: ParkingLot }>("/reserve", {
+        lot_id: lot.id,
+        user_data: {
+          destination,
+          origin: currentOrigin ? `${currentOrigin[0]},${currentOrigin[1]}` : "",
+          mode,
+          urgency: String(tripUrgency),
+          query_string: destinationQuery.trim() || assistant?.destination_query || "",
+        },
+      });
+      const url = response.data.url ?? lot.booking_url;
+      if (url) {
+        window.open(url, "_blank", "noopener,noreferrer");
+      } else {
+        setError("Reservation is unavailable for this lot.");
+      }
+    } catch {
+      const query = encodeURIComponent(`${lot.name} parking reservation`);
+      window.open(`https://www.google.com/search?q=${query}`, "_blank", "noopener,noreferrer");
+    } finally {
+      setActionState(null);
     }
-    const query = encodeURIComponent(`${lot.name} parking reservation`);
-    window.open(`https://www.google.com/search?q=${query}`, "_blank", "noopener,noreferrer");
   }
 
   function useCurrentLocation() {
@@ -337,6 +374,7 @@ export function AssistantView() {
       label: assistant?.destination_label ?? selectedDestination?.label ?? savedDestinationQuery ?? destination,
       destination,
       destination_query: savedDestinationQuery,
+      query_string: savedDestinationQuery,
       mode,
       preference,
       origin: savedOrigin,
@@ -351,7 +389,7 @@ export function AssistantView() {
   async function applyFavorite(item: FavoriteTrip) {
     const nextOrigin = item.origin ?? originOverride ?? assistant?.origin ?? null;
     setDestination(item.destination);
-    setDestinationQuery(item.destination_query ?? "");
+    setDestinationQuery(item.query_string ?? item.destination_query ?? "");
     setMode(item.mode);
     setPreference(item.preference);
     setTripUrgency(item.urgency);
@@ -359,7 +397,7 @@ export function AssistantView() {
     setSelectedLotId(null);
     await search(false, {
       destination: item.destination,
-      destination_query: item.destination_query ?? null,
+      destination_query: item.query_string ?? item.destination_query ?? null,
       mode: item.mode,
       preference: item.preference,
       trip_urgency: item.urgency,
@@ -370,7 +408,7 @@ export function AssistantView() {
   function rerunHistory(item: AssistantHistoryEntry) {
     const nextOrigin = item.origin ?? originOverride ?? assistant?.origin ?? null;
     setDestination(item.destination);
-    setDestinationQuery(item.destination_query ?? "");
+    setDestinationQuery(item.query_string ?? item.destination_query ?? "");
     setMode(item.mode);
     setPreference(item.preference);
     setTripUrgency(item.trip_urgency);
@@ -378,7 +416,7 @@ export function AssistantView() {
     setSelectedLotId(null);
     void search(false, {
       destination: item.destination,
-      destination_query: item.destination_query ?? null,
+      destination_query: item.query_string ?? item.destination_query ?? null,
       mode: item.mode,
       preference: item.preference,
       trip_urgency: item.trip_urgency,
@@ -454,35 +492,35 @@ export function AssistantView() {
             <button
               className="min-h-12 rounded-2xl border border-cyan-300/30 bg-cyan-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-60"
               onClick={() => void search(false)}
-              disabled={busy}
+              disabled={isBusy}
             >
               Search parking
             </button>
             <button
               className="min-h-12 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10 disabled:opacity-60"
               onClick={() => void search(true)}
-              disabled={busy}
+              disabled={isBusy}
             >
               Refresh availability
             </button>
             <button
               className="min-h-12 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10 disabled:opacity-60 sm:col-span-2"
               onClick={() => void search(false, { destination: destination, mode, preference })}
-              disabled={busy}
+              disabled={isBusy}
             >
               Re-score current trip
             </button>
             <button
               className="min-h-12 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10 disabled:opacity-60"
               onClick={useCurrentLocation}
-              disabled={busy}
+              disabled={isBusy}
             >
               Use my location
             </button>
             <button
               className="min-h-12 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10 disabled:opacity-60"
               onClick={saveFavorite}
-              disabled={busy}
+              disabled={isBusy}
             >
               Save favorite
             </button>
@@ -499,7 +537,7 @@ export function AssistantView() {
               {favorites.map((item) => (
                 <button
                   key={item.id}
-                  disabled={busy}
+                  disabled={isBusy}
                   onClick={() => void applyFavorite(item)}
                   className="rounded-full border border-white/10 bg-slate-950/60 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/40 hover:bg-cyan-400/10 disabled:opacity-50"
                 >
@@ -520,13 +558,13 @@ export function AssistantView() {
               {presets.map((preset) => (
                 <button
                   key={preset.id}
-                  disabled={busy}
+                  disabled={isBusy}
                   onClick={() => void applyPreset(preset)}
                   className="rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-left transition hover:border-cyan-300/50 hover:bg-cyan-400/10 disabled:opacity-50"
                 >
                   <div className="text-sm font-semibold text-white">{preset.label}</div>
-                  <div className="mt-1 text-xs uppercase tracking-[0.25em] text-cyan-200">
-                    {preset.destination} | {preset.mode} | {preset.preference}
+                  <div className="mt-1 text-[10px] uppercase tracking-[0.2em] text-cyan-200">
+                    {preset.destination} · {preset.mode} · {preset.preference}
                   </div>
                   <div className="mt-2 text-sm leading-5 text-slate-300">{preset.description}</div>
                 </button>
@@ -581,10 +619,21 @@ export function AssistantView() {
 
           <Panel title="Data trust" icon={<Shield className="h-4 w-4" />}>
             <div className="space-y-2">
-              <SummaryLine label="Provider" value={assistant?.provider_name ?? "--"} />
+              <SummaryLine
+                label="Provider"
+                value={
+                  assistant?.live_data_enabled
+                    ? assistant?.provider_name ?? "--"
+                    : `${assistant?.provider_name ?? "--"} (demo / cached data)`
+                }
+              />
               <SummaryLine label="Status" value={assistant?.provider_status ?? "--"} />
               <SummaryLine label="Freshness" value={`${assistant?.freshness_minutes ?? "--"}m`} />
               <SummaryLine label="Updated" value={assistant?.last_updated_at ? new Date(assistant.last_updated_at).toLocaleString() : "--"} />
+              <SummaryLine
+                label="Last update"
+                value={assistant?.provider_health?.last_updated ? new Date(assistant.provider_health.last_updated).toLocaleString() : "--"}
+              />
               <SummaryLine label="Route engine" value={assistant?.route_engine ?? "--"} />
               <SummaryLine label="Stability" value={`${Math.round((assistant?.stability_index ?? 0) * 100)}%`} />
             </div>
@@ -678,17 +727,19 @@ export function AssistantView() {
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button
-                        onClick={() => openLotDirections(selectedLot)}
+                        onClick={() => void navigateToLot(selectedLot)}
+                        disabled={isBusy}
                         className="rounded-full border border-cyan-300/20 bg-cyan-400/15 px-4 py-2 text-sm font-semibold text-cyan-50 transition hover:bg-cyan-300/25"
                       >
-                        Navigate here
+                        {actionState === "navigating" ? "Navigating..." : "Navigate here"}
                       </button>
                       {selectedLot.reservation_supported && (
                         <button
-                          onClick={() => openLotReservation(selectedLot)}
+                          onClick={() => void reserveLot(selectedLot)}
+                          disabled={isBusy}
                           className="rounded-full border border-emerald-300/20 bg-emerald-400/15 px-4 py-2 text-sm font-semibold text-emerald-50 transition hover:bg-emerald-300/25"
                         >
-                          Reserve spot
+                          {actionState === "reserving" ? "Reserving..." : "Reserve spot"}
                         </button>
                       )}
                       <button
@@ -702,7 +753,7 @@ export function AssistantView() {
                 )}
                 <div className="mt-2 text-xs uppercase tracking-[0.22em] text-slate-400">
                   {originOverride ? "GPS origin active" : "Using assistant default origin"}
-                  {" | "}
+                  {" · "}
                   Drag to pan, wheel to zoom, arrows to move, +/- to zoom, click markers to focus.
                 </div>
               </div>
@@ -741,17 +792,19 @@ export function AssistantView() {
                 <p className="mt-2 text-sm text-slate-400">{primaryRecommendation.tradeoff}</p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button
-                    onClick={() => openLotDirections(primaryRecommendation.lot)}
+                    onClick={() => void navigateToLot(primaryRecommendation.lot)}
+                    disabled={isBusy}
                     className="rounded-full border border-cyan-300/20 bg-cyan-400/15 px-4 py-2 text-sm font-semibold text-cyan-50 transition hover:bg-cyan-300/25"
                   >
-                    Navigate
+                    {actionState === "navigating" ? "Navigating..." : "Navigate"}
                   </button>
                   {primaryRecommendation.lot.reservation_supported && (
                     <button
-                      onClick={() => openLotReservation(primaryRecommendation.lot)}
+                      onClick={() => void reserveLot(primaryRecommendation.lot)}
+                      disabled={isBusy}
                       className="rounded-full border border-emerald-300/20 bg-emerald-400/15 px-4 py-2 text-sm font-semibold text-emerald-50 transition hover:bg-emerald-300/25"
                     >
-                      Reserve
+                      {actionState === "reserving" ? "Reserving..." : "Reserve"}
                     </button>
                   )}
                 </div>
@@ -770,7 +823,7 @@ export function AssistantView() {
                           <div className="uppercase tracking-[0.18em] text-[10px] text-slate-400">Top {index + 1}</div>
                           <div className="mt-1">{item.lot.name}</div>
                           <div className="mt-1 text-[10px] font-normal text-slate-400">
-                            ${item.lot.hourly_rate.toFixed(2)} | {item.lot.walk_minutes}m walk | {Math.round(item.lot.confidence * 100)}%
+                            ${item.lot.hourly_rate.toFixed(2)} · {item.lot.walk_minutes}m walk · {Math.round(item.lot.confidence * 100)}%
                           </div>
                       </button>
                     ))}
@@ -832,17 +885,19 @@ export function AssistantView() {
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
-                      onClick={() => openLotDirections(item.lot)}
+                      onClick={() => void navigateToLot(item.lot)}
+                      disabled={isBusy}
                       className="min-h-11 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:border-cyan-300/40 hover:bg-cyan-400/10"
                     >
-                      Navigate
+                      {actionState === "navigating" ? "Navigating..." : "Navigate"}
                     </button>
                     {item.lot.reservation_supported && (
                       <button
-                        onClick={() => openLotReservation(item.lot)}
+                        onClick={() => void reserveLot(item.lot)}
+                        disabled={isBusy}
                         className="min-h-11 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:border-emerald-300/40 hover:bg-emerald-400/10"
                       >
-                        Reserve
+                        {actionState === "reserving" ? "Reserving..." : "Reserve"}
                       </button>
                     )}
                     <button
@@ -898,16 +953,16 @@ export function AssistantView() {
           {mobileActionsOpen && (
             <div className="mt-2 rounded-[1.6rem] border border-white/10 bg-slate-950/95 p-3 shadow-[0_20px_50px_rgba(0,0,0,0.35)] backdrop-blur">
               <div className="grid gap-2">
-                <button onClick={() => void search(false)} disabled={busy} className="min-h-12 rounded-2xl border border-cyan-300/30 bg-cyan-400 px-4 py-3 text-sm font-semibold text-slate-950 disabled:opacity-60">
+                <button onClick={() => void search(false)} disabled={isBusy} className="min-h-12 rounded-2xl border border-cyan-300/30 bg-cyan-400 px-4 py-3 text-sm font-semibold text-slate-950 disabled:opacity-60">
                   Search parking
                 </button>
-                <button onClick={() => void search(true)} disabled={busy} className="min-h-12 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 disabled:opacity-60">
+                <button onClick={() => void search(true)} disabled={isBusy} className="min-h-12 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 disabled:opacity-60">
                   Refresh availability
                 </button>
-                <button onClick={useCurrentLocation} disabled={busy} className="min-h-12 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 disabled:opacity-60">
+                <button onClick={useCurrentLocation} disabled={isBusy} className="min-h-12 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 disabled:opacity-60">
                   Use my location
                 </button>
-                <button onClick={saveFavorite} disabled={busy} className="min-h-12 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 disabled:opacity-60">
+                <button onClick={saveFavorite} disabled={isBusy} className="min-h-12 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 disabled:opacity-60">
                   Save favorite
                 </button>
               </div>

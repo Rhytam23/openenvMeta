@@ -9,6 +9,21 @@ from typing import Tuple
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+_LOCALITY_HINTS = (
+    "new delhi",
+    "delhi",
+    "mumbai",
+    "bengaluru",
+    "bangalore",
+    "ahmedabad",
+    "chennai",
+    "hyderabad",
+    "kolkata",
+    "pune",
+    "gurugram",
+    "gurgaon",
+)
+
 
 @dataclass(frozen=True)
 class RouteMetrics:
@@ -85,7 +100,7 @@ def _geocode_destination(query: str) -> Tuple[str, Tuple[float, float], str]:
         raise ValueError(f"Could not resolve destination: {query}")
     lat = float(item["lat"])
     lng = float(item["lon"])
-    label = item.get("display_name") or query
+    label = _compact_label(query, item.get("display_name") or query)
     return label, (lat, lng), "nominatim"
 
 
@@ -106,3 +121,17 @@ def _fetch_json(url: str, params: dict[str, str] | None = None, headers: dict[st
     request = Request(f"{url}{query}", headers=headers or {"Accept": "application/json"})
     with urlopen(request, timeout=10) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _compact_label(query: str, label: str) -> str:
+    parts = [part.strip() for part in label.split(",") if part.strip()]
+    if not parts:
+        return query.strip() or label
+    if len(parts) == 1:
+        return parts[0]
+    head = parts[0]
+    for part in parts[1:]:
+        lower = part.lower()
+        if any(hint in lower for hint in _LOCALITY_HINTS):
+            return f"{head}, {part}"
+    return f"{head}, {parts[1]}"

@@ -10,7 +10,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from .models import ParkingLot
+from .models import ParkingLot, ProviderHealth
 
 
 @dataclass(frozen=True)
@@ -25,34 +25,116 @@ class ParkingSnapshot:
 
 
 class ParkingDataProvider(Protocol):
+    provider_name: str
+
+    def get_lots(self) -> List[ParkingLot]: ...
+
+    def get_availability(self, lot_id: str) -> int: ...
+
+    def get_price(self, lot_id: str) -> float: ...
+
+    def supports_reservation(self, lot_id: str) -> bool: ...
+
+    def reserve(self, lot_id: str, user_data: dict[str, Any] | None = None) -> dict[str, Any]: ...
+
+    def health_check(self) -> ProviderHealth: ...
+
     def snapshot(self, destination: str, mode: str, preference: str, refresh: bool = False) -> ParkingSnapshot: ...
 
 
-class DemoParkingProvider:
+class _BaseProvider:
+    provider_name = "Parking feed"
+
+    def __init__(self) -> None:
+        self._lots = _base_lots()
+        self._status = "stale"
+        self._warning: str | None = None
+        self._last_updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    def get_lots(self) -> List[ParkingLot]:
+        return [lot.model_copy(deep=True) for lot in self._lots]
+
+    def _set_lots(self, lots: List[ParkingLot]) -> None:
+        self._lots = [lot.model_copy(deep=True) for lot in lots]
+        self._last_updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    def _find_lot(self, lot_id: str) -> ParkingLot | None:
+        for lot in self._lots:
+            if lot.id == lot_id:
+                return lot
+        return None
+
+    def get_availability(self, lot_id: str) -> int:
+        lot = self._find_lot(lot_id)
+        return lot.available_spots if lot else 0
+
+    def get_price(self, lot_id: str) -> float:
+        lot = self._find_lot(lot_id)
+        return lot.hourly_rate if lot else 0.0
+
+    def supports_reservation(self, lot_id: str) -> bool:
+        lot = self._find_lot(lot_id)
+        return bool(lot and lot.reservation_supported)
+
+    def reserve(self, lot_id: str, user_data: dict[str, Any] | None = None) -> dict[str, Any]:
+        del user_data
+        lot = self._find_lot(lot_id)
+        if not lot:
+            return {"status": "unavailable", "lot_id": lot_id}
+        if not lot.reservation_supported:
+            return {"status": "unavailable", "lot": lot.model_dump()}
+        if lot.booking_url:
+            return {"status": "redirect", "url": lot.booking_url, "lot": lot.model_dump()}
+        query = urlencode({"q": f"{lot.name} parking reservation"})
+        return {
+            "status": "search",
+            "url": f"https://www.google.com/search?{query}",
+            "lot": lot.model_dump(),
+        }
+
+    def health_check(self) -> ProviderHealth:
+        return ProviderHealth(
+            provider_name=self.provider_name,
+            status=self._status,
+            last_updated=self._last_updated_at,
+            warning=self._warning,
+        )
+
+
+class DemoParkingProvider(_BaseProvider):
+    provider_name = "Demo feed"
+
     def snapshot(self, destination: str, mode: str, preference: str, refresh: bool = False) -> ParkingSnapshot:
-        lots = _base_lots()
+        lots = self.get_lots()
         if refresh:
             rnd = Random(f"{destination}:{mode}:{preference}")
             for lot in lots:
                 delta = rnd.randint(-8, 8)
                 lot.available_spots = max(0, min(lot.total_spots, lot.available_spots + delta))
                 lot.confidence = max(0.55, min(0.99, round(lot.confidence + rnd.uniform(-0.04, 0.04), 2)))
+            self._set_lots(lots)
+            self._status = "live"
+        else:
+            self._status = "stale"
+        self._warning = None
         return ParkingSnapshot(
-            source_name="Demo feed",
-            provider_status="healthy",
+            source_name=self.provider_name,
+            provider_status=self._status,
             provider_warning=None,
-            last_updated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            last_updated_at=self._last_updated_at,
             freshness_minutes=5 if refresh else 15,
             lots=lots,
             live_data_enabled=False,
         )
 
 
-class LiveParkingProvider:
+class LiveParkingProvider(_BaseProvider):
     def __init__(self, feed_url: str, api_key: str | None = None, provider_name: str = "Live feed"):
+        super().__init__()
         self.feed_url = feed_url
         self.api_key = api_key
         self.provider_name = provider_name
+        self._status = "degraded"
 
     def snapshot(self, destination: str, mode: str, preference: str, refresh: bool = False) -> ParkingSnapshot:
         try:
@@ -63,22 +145,27 @@ class LiveParkingProvider:
                 url = f"{url}?{urlencode({'destination': destination, 'mode': mode, 'preference': preference, 'refresh': str(refresh).lower()})}"
             payload = _fetch_json(url, self.api_key)
             lots = _lots_from_payload(payload)
+            self._set_lots(lots)
+            self._status = "live" if refresh else "stale"
+            self._warning = None if self._status == "live" else "Live feed is available but may be slightly stale."
             return ParkingSnapshot(
                 source_name=self.provider_name,
-                provider_status="healthy",
-                provider_warning=None,
-                last_updated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                provider_status=self._status,
+                provider_warning=self._warning,
+                last_updated_at=self._last_updated_at,
                 freshness_minutes=1 if refresh else 3,
                 lots=lots,
                 live_data_enabled=True,
             )
         except Exception as exc:
             demo = DemoParkingProvider().snapshot(destination, mode, preference, refresh=refresh)
-            warning = f"Live feed unavailable; using demo fallback. ({exc.__class__.__name__})"
+            self._set_lots(demo.lots)
+            self._status = "degraded"
+            self._warning = f"Live feed unavailable; using demo fallback. ({exc.__class__.__name__})"
             return ParkingSnapshot(
                 source_name=f"{self.provider_name} fallback",
-                provider_status="degraded",
-                provider_warning=warning,
+                provider_status=self._status,
+                provider_warning=self._warning,
                 last_updated_at=demo.last_updated_at,
                 freshness_minutes=demo.freshness_minutes,
                 lots=demo.lots,

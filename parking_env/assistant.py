@@ -10,6 +10,7 @@ from .models import (
     AssistantState,
     ParkingLot,
     ParkingRecommendation,
+    ProviderHealth,
     TripPreference,
 )
 from .geo import estimate_route_metrics, geocode_destination, haversine_km
@@ -79,6 +80,12 @@ def _destination(destination: str) -> Tuple[str, Tuple[float, float]]:
     return DESTINATIONS.get(destination.lower(), ("Connaught Place, New Delhi", DESTINATIONS["downtown"][1]))
 
 
+def _normalize(value: float, maximum: float) -> float:
+    if maximum <= 0:
+        return 0.0
+    return max(0.0, min(1.0, value / maximum))
+
+
 def _resolve_destination(destination: str, destination_query: str | None = None) -> Tuple[str, Tuple[float, float], str, bool]:
     query = (destination_query or "").strip()
     if query:
@@ -105,69 +112,48 @@ def _score_lot(
     mode: str,
     preference: TripPreference,
     trip_urgency: float,
+    provider_status: str,
+    freshness_minutes: int,
 ) -> ParkingRecommendation:
-    availability = lot.available_spots / max(1, lot.total_spots)
     origin_to_lot = estimate_route_metrics(origin, lot.position, "driving")
     lot_to_destination = estimate_route_metrics(lot.position, destination_point, "walking")
     distance_to_dest = lot_to_destination.distance_km
     distance_from_origin = origin_to_lot.distance_km
     travel_distance = distance_from_origin + distance_to_dest
-    commute_pressure = distance_from_origin
+    drive_minutes = max(lot.drive_minutes, round(origin_to_lot.duration_min))
+    estimated_total_minutes = drive_minutes + lot.walk_minutes
+    drive_norm = _normalize(drive_minutes, 30.0)
+    walk_norm = _normalize(lot.walk_minutes, 20.0)
+    distance_norm = _normalize(travel_distance, 25.0)
+    freshness_norm = _normalize(freshness_minutes, 30.0)
+    availability = lot.available_spots / max(1, lot.total_spots)
     demand_pressure = min(
         1.0,
         round(
-            (1.0 - availability) * 0.54
-            + max(0.0, 0.16 - lot.confidence) * 0.9
-            + (0.12 if lot.reservation_supported else 0.18)
-            + min(0.12, lot.hourly_rate / 80.0),
+            (1.0 - availability) * 0.45
+            + (1.0 - lot.confidence) * 0.2
+            + (0.12 if not lot.reservation_supported else 0.04)
+            + _normalize(lot.hourly_rate, 20.0) * 0.2,
             4,
         ),
     )
-    urgency_weight = 0.35 + trip_urgency * 0.65
-    walk_penalty = max(0, lot.walk_minutes - 3) * (0.025 + trip_urgency * 0.02 if mode == "walk" else 0.018 + trip_urgency * 0.015)
-    drive_minutes = max(lot.drive_minutes, round(origin_to_lot.duration_min))
-    drive_penalty = drive_minutes * (0.016 + trip_urgency * 0.02 if mode == "drive" else 0.01 + trip_urgency * 0.01)
-    price_penalty = min(lot.hourly_rate / 18.0, 0.22) * (0.8 + (1.0 - trip_urgency) * 0.4)
-    scarcity_penalty = 0.22 + demand_pressure * 0.18 if lot.available_spots <= max(3, round(lot.total_spots * 0.08)) else demand_pressure * 0.08
-    confidence_bonus = lot.confidence * 0.18 + (1.0 - demand_pressure) * 0.06
-    proximity_bonus = max(0.0, 0.42 - distance_to_dest * 0.08)
-    reserve_bonus = 0.12 if lot.reservation_supported else 0.0
-    cheapest_bonus = max(0.0, 0.12 - lot.hourly_rate / 100.0)
-    closest_bonus = max(0.0, 0.2 - distance_to_dest * 0.12)
-    drive_minutes = max(lot.drive_minutes, round(distance_from_origin * 2.2) + 2)
-    estimated_total_minutes = drive_minutes + lot.walk_minutes
-
-    score = (
-        availability * (0.28 + (1.0 - trip_urgency) * 0.12)
-        + (1.0 - demand_pressure) * 0.22
-        + confidence_bonus
-        + proximity_bonus * urgency_weight
-        + reserve_bonus * (0.45 + trip_urgency * 0.45)
-        + cheapest_bonus * (0.7 if preference == TripPreference.CHEAPEST else 0.25 + (1.0 - trip_urgency) * 0.1)
-        + closest_bonus * (0.7 if preference == TripPreference.CLOSEST else 0.2 + trip_urgency * 0.1)
-        - drive_penalty
-        - walk_penalty
-        - price_penalty
-        - scarcity_penalty
-        - commute_pressure * 0.005
-    )
-
+    score_cost = 0.38 * drive_norm + 0.27 * walk_norm + 0.24 * distance_norm + 0.11 * freshness_norm
+    if provider_status == "stale":
+        score_cost += 0.08
+    elif provider_status == "degraded":
+        score_cost += 0.14
     if preference == TripPreference.RESERVE:
-        score += 0.12 if lot.reservation_supported else -0.1
+        score_cost -= 0.05 if lot.reservation_supported else -0.03
     elif preference == TripPreference.CHEAPEST:
-        score += max(0.0, 0.18 - lot.hourly_rate / 45.0)
+        score_cost += _normalize(lot.hourly_rate, 18.0) * 0.12
     elif preference == TripPreference.CLOSEST:
-        score += max(0.0, 0.18 - distance_to_dest * 0.15)
-    else:
-        score += 0.05 if lot.reservation_supported else 0.0
-
+        score_cost += _normalize(distance_to_dest, 10.0) * 0.12
     if trip_urgency >= 0.7:
-        score += 0.05 if lot.reservation_supported else -0.02
-        score += max(0.0, 0.08 - distance_to_dest * 0.08)
+        score_cost += 0.04 if not lot.reservation_supported else -0.03
     elif trip_urgency <= 0.3:
-        score += max(0.0, 0.08 - lot.hourly_rate / 80.0)
+        score_cost += _normalize(lot.hourly_rate, 25.0) * 0.05
 
-    score = max(0.0, min(1.0, round(score, 4)))
+    score = max(0.0, min(1.0, round(1.0 - score_cost + availability * 0.1 + lot.confidence * 0.05, 4)))
 
     if lot.reservation_supported and lot.available_spots > 0:
         reason = f"{lot.name} balances access, confidence, and reserve support."
@@ -208,6 +194,24 @@ def _route_summary(destination_label: str, preference: TripPreference, mode: str
     return f"{mode.title()} trip to {destination_label} using a {focus} parking strategy."
 
 
+def _provider_health(provider: object, snapshot) -> ProviderHealth:
+    health_check = getattr(provider, "health_check", None)
+    if callable(health_check):
+        try:
+            health = health_check()
+            if health:
+                return health
+        except Exception:
+            pass
+    provider_name = getattr(provider, "provider_name", snapshot.source_name)
+    return ProviderHealth(
+        provider_name=str(provider_name),
+        status=snapshot.provider_status,
+        last_updated=snapshot.last_updated_at,
+        warning=snapshot.provider_warning,
+    )
+
+
 def _record_history(state: AssistantState) -> None:
     best_lot = state.best_option.lot.name if state.best_option else None
     entry = AssistantHistoryEntry(
@@ -215,6 +219,7 @@ def _record_history(state: AssistantState) -> None:
         destination=state.destination,
         destination_label=state.destination_label,
         destination_query=state.destination_query,
+        query_string=state.destination_query,
         mode=state.travel_mode,
         preference=state.preference,
         origin=state.origin,
@@ -247,7 +252,7 @@ def _build_alerts(
     trip_urgency: float,
 ) -> List[AssistantAlert]:
     alerts: List[AssistantAlert] = []
-    if provider_status != "healthy":
+    if provider_status not in {"healthy", "live"}:
         alerts.append(
             AssistantAlert(
                 id="provider-status",
@@ -318,24 +323,36 @@ def build_assistant_state(
     destination_label, destination_point, destination_source, custom_destination = _resolve_destination(destination, destination_query)
     origin = origin or (28.6139, 77.2090)
     provider = get_provider()
-    provider_destination = destination_query_value or destination_label
+    provider_destination = destination_label
     snapshot = provider.snapshot(provider_destination, mode, preference.value, refresh=refresh)
+    provider_health = _provider_health(provider, snapshot)
     lots = snapshot.lots
     route_probe = estimate_route_metrics(origin, destination_point, "driving" if mode == "drive" else "walking")
-    provider_status = snapshot.provider_status
-    provider_warning = snapshot.provider_warning
-    if snapshot.live_data_enabled and snapshot.freshness_minutes >= 12 and provider_status == "healthy":
-        provider_status = "degraded"
+    provider_status = snapshot.provider_status or provider_health.status
+    provider_warning = snapshot.provider_warning or provider_health.warning
+    if snapshot.live_data_enabled and snapshot.freshness_minutes >= 12 and provider_status == "live":
+        provider_status = "stale"
         provider_warning = provider_warning or "Live data is getting stale."
     if route_probe.source == "estimate":
         provider_warning = provider_warning or "Route service unavailable; using estimated travel times."
-        if provider_status == "healthy":
-            provider_status = "degraded"
+        if provider_status == "live":
+            provider_status = "stale"
 
     recommendations = sorted(
-        [_score_lot(lot, origin, destination_point, mode, preference, trip_urgency) for lot in lots],
-        key=lambda item: item.score,
-        reverse=True,
+        [
+            _score_lot(
+                lot,
+                origin,
+                destination_point,
+                mode,
+                preference,
+                trip_urgency,
+                provider_status,
+                snapshot.freshness_minutes,
+            )
+            for lot in lots
+        ],
+        key=lambda item: (-item.score, item.lot.name, item.lot.id),
     )
     open_lots = sum(1 for lot in lots if lot.available_spots > 0)
     best_option = recommendations[0] if recommendations else None
@@ -359,6 +376,7 @@ def build_assistant_state(
         provider_status=provider_status,
         provider_warning=provider_warning,
         last_updated_at=snapshot.last_updated_at,
+        provider_health=provider_health,
         freshness_minutes=snapshot.freshness_minutes,
         route_engine=route_probe.source.upper(),
         route_summary=_route_summary(destination_label, preference, mode),

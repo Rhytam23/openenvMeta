@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from parking_env import assistant as assistant_module
+from parking_env import geo as geo_module
 from parking_env.models import ParkingLot
 from parking_env.providers import ParkingSnapshot
 
@@ -79,13 +80,95 @@ def test_custom_destination_query_drives_provider_and_history(monkeypatch):
         trip_urgency=0.75,
     )
 
-    assert captured == ["India Gate"]
+    assert captured == ["India Gate, New Delhi"]
     assert state.destination_query == "India Gate"
     assert state.recent_searches[0].destination_query == "India Gate"
     assert state.recent_searches[0].origin == (28.6139, 77.2090)
     assert state.recent_searches[0].trip_urgency == 0.75
     assert state.recent_searches[0].id
     assert state.recent_searches[0].best_lot == state.best_option.lot.name
+
+
+def test_geocode_failure_falls_back_to_preset_destination(monkeypatch):
+    _reset_history()
+    captured: list[str] = []
+
+    class CaptureProvider:
+        def snapshot(self, destination: str, mode: str, preference: str, refresh: bool = False) -> ParkingSnapshot:
+            del mode, preference, refresh
+            captured.append(destination)
+            lot = ParkingLot(
+                id="demo-lot",
+                name="Demo Lot",
+                address="1 Demo Way",
+                position=(28.61, 77.2),
+                total_spots=20,
+                available_spots=8,
+                hourly_rate=10.0,
+                walk_minutes=6,
+                drive_minutes=4,
+                confidence=0.9,
+                reservation_supported=True,
+            )
+            return ParkingSnapshot(
+                source_name="Mock feed",
+                provider_status="live",
+                provider_warning=None,
+                last_updated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                freshness_minutes=3,
+                lots=[lot],
+                live_data_enabled=True,
+            )
+
+    monkeypatch.setattr(assistant_module, "geocode_destination", lambda query: (_ for _ in ()).throw(RuntimeError("no geocode")))
+    monkeypatch.setattr(assistant_module, "get_provider", lambda: CaptureProvider())
+
+    state = assistant_module.build_assistant_state("downtown", destination_query="Bad Query")
+
+    assert captured == ["Connaught Place, New Delhi"]
+    assert state.destination_label == "Connaught Place, New Delhi"
+    assert state.destination_query == "Bad Query"
+
+
+def test_routing_failure_uses_distance_estimate(monkeypatch):
+    _reset_history()
+    captured: list[str] = []
+
+    class CaptureProvider:
+        def snapshot(self, destination: str, mode: str, preference: str, refresh: bool = False) -> ParkingSnapshot:
+            del mode, preference, refresh
+            captured.append(destination)
+            lot = ParkingLot(
+                id="demo-lot",
+                name="Demo Lot",
+                address="1 Demo Way",
+                position=(28.61, 77.2),
+                total_spots=20,
+                available_spots=8,
+                hourly_rate=10.0,
+                walk_minutes=6,
+                drive_minutes=4,
+                confidence=0.9,
+                reservation_supported=True,
+            )
+            return ParkingSnapshot(
+                source_name="Mock feed",
+                provider_status="live",
+                provider_warning=None,
+                last_updated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                freshness_minutes=3,
+                lots=[lot],
+                live_data_enabled=True,
+            )
+
+    monkeypatch.setattr(assistant_module, "get_provider", lambda: CaptureProvider())
+    monkeypatch.setattr(geo_module, "route_metrics", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("route down")))
+
+    state = assistant_module.build_assistant_state("downtown", destination_query="India Gate")
+
+    assert captured == ["India Gate, New Delhi"]
+    assert state.route_engine == "ESTIMATE"
+    assert all(0.0 <= item.score <= 1.0 for item in state.recommendations)
 
 
 def test_preset_destination_uses_resolved_label_for_provider(monkeypatch):
