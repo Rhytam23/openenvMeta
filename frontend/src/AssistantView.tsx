@@ -286,8 +286,19 @@ export function AssistantView() {
     window.open(mapsUrl, "_blank", "noopener,noreferrer");
   }
 
+  function openExternalUrl(url: string, fallback?: string) {
+    const popup = window.open("about:blank", "_blank", "noopener,noreferrer");
+    if (popup) {
+      popup.opener = null;
+      popup.location.href = url;
+      return;
+    }
+    window.open(fallback ?? url, "_blank", "noopener,noreferrer");
+  }
+
   async function navigateToLot(lot: ParkingLot) {
     setActionState("navigating");
+    const popup = window.open("about:blank", "_blank", "noopener,noreferrer");
     try {
       const response = await api.post<{ status: string; url?: string; lot?: ParkingLot }>("/navigate", {
         lot_id: lot.id,
@@ -295,14 +306,22 @@ export function AssistantView() {
       });
       const url = response.data.url ?? lot.map_url;
       if (url) {
-        window.open(url, "_blank", "noopener,noreferrer");
+        if (popup) {
+          popup.opener = null;
+          popup.location.href = url;
+        } else {
+          openExternalUrl(url);
+        }
       } else {
         openDirectionsTo(lot.position);
       }
       setError("");
     } catch {
+      if (popup) {
+        popup.close();
+      }
       if (lot.map_url) {
-        window.open(lot.map_url, "_blank", "noopener,noreferrer");
+        openExternalUrl(lot.map_url);
       } else {
         openDirectionsTo(lot.position);
       }
@@ -313,6 +332,7 @@ export function AssistantView() {
 
   async function reserveLot(lot: ParkingLot) {
     setActionState("reserving");
+    const popup = window.open("about:blank", "_blank", "noopener,noreferrer");
     try {
       const response = await api.post<{ status: string; url?: string; lot?: ParkingLot }>("/reserve", {
         lot_id: lot.id,
@@ -326,13 +346,21 @@ export function AssistantView() {
       });
       const url = response.data.url ?? lot.booking_url;
       if (url) {
-        window.open(url, "_blank", "noopener,noreferrer");
+        if (popup) {
+          popup.opener = null;
+          popup.location.href = url;
+        } else {
+          openExternalUrl(url);
+        }
       } else {
         setError("Reservation is unavailable for this lot.");
       }
     } catch {
+      if (popup) {
+        popup.close();
+      }
       const query = encodeURIComponent(`${lot.name} parking reservation`);
-      window.open(`https://www.google.com/search?q=${query}`, "_blank", "noopener,noreferrer");
+      openExternalUrl(`https://www.google.com/search?q=${query}`);
     } finally {
       setActionState(null);
     }
