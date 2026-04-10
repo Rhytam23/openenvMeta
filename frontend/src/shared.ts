@@ -81,6 +81,8 @@ export interface AssistantState {
   destination: string;
   destination_label: string;
   destination_position: [number, number];
+  custom_destination: boolean;
+  destination_query: string | null;
   travel_mode: string;
   preference: TripPreference;
   trip_urgency: number;
@@ -122,10 +124,14 @@ export interface AssistantPreset {
 }
 
 export interface AssistantHistoryEntry {
+  id: string;
   destination: string;
   destination_label: string;
+  destination_query: string | null;
   mode: string;
   preference: TripPreference;
+  origin: [number, number] | null;
+  trip_urgency: number;
   best_lot: string | null;
   score: number;
   searched_at: string;
@@ -135,8 +141,10 @@ export interface FavoriteTrip {
   id: string;
   label: string;
   destination: string;
+  destination_query: string | null;
   mode: string;
   preference: TripPreference;
+  origin: [number, number] | null;
   urgency: number;
 }
 

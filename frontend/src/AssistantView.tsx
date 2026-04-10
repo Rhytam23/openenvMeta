@@ -103,7 +103,7 @@ export function AssistantView() {
       syncSelectedLot(stateRes.data);
       if (!silent) {
         setDestination(stateRes.data.destination);
-        setDestinationQuery("");
+        setDestinationQuery(stateRes.data.custom_destination ? stateRes.data.destination_query ?? "" : "");
         setMode(stateRes.data.travel_mode);
         setPreference(stateRes.data.preference);
         setTripUrgency(stateRes.data.trip_urgency);
@@ -154,9 +154,11 @@ export function AssistantView() {
       setAssistant(response.data);
       syncSelectedLot(response.data);
       setDestination(response.data.destination);
+      setDestinationQuery(response.data.custom_destination ? response.data.destination_query ?? destinationQueryValue ?? "" : "");
       setMode(response.data.travel_mode);
       setPreference(response.data.preference);
       setTripUrgency(response.data.trip_urgency);
+      setOriginOverride(response.data.origin);
       setError("");
     } catch {
       setError("Could not refresh recommendations.");
@@ -328,12 +330,16 @@ export function AssistantView() {
   }
 
   function saveFavorite() {
+    const savedDestinationQuery = assistant?.destination_query ?? (destinationQuery.trim() || null);
+    const savedOrigin = currentOrigin;
     const next: FavoriteTrip = {
-      id: `${destination}-${mode}-${preference}-${Math.round(tripUrgency * 100)}`,
-      label: assistant?.destination_label ?? selectedDestination?.label ?? destination,
+      id: `${savedDestinationQuery ?? destination}-${savedOrigin ? savedOrigin.join(",") : "default"}-${mode}-${preference}-${Math.round(tripUrgency * 100)}`,
+      label: assistant?.destination_label ?? selectedDestination?.label ?? savedDestinationQuery ?? destination,
       destination,
+      destination_query: savedDestinationQuery,
       mode,
       preference,
+      origin: savedOrigin,
       urgency: tripUrgency,
     };
     setFavorites((prev) => {
@@ -343,28 +349,41 @@ export function AssistantView() {
   }
 
   async function applyFavorite(item: FavoriteTrip) {
+    const nextOrigin = item.origin ?? originOverride ?? assistant?.origin ?? null;
     setDestination(item.destination);
-    setDestinationQuery("");
+    setDestinationQuery(item.destination_query ?? "");
     setMode(item.mode);
     setPreference(item.preference);
     setTripUrgency(item.urgency);
+    setOriginOverride(nextOrigin);
     setSelectedLotId(null);
     await search(false, {
       destination: item.destination,
-      destination_query: null,
+      destination_query: item.destination_query ?? null,
       mode: item.mode,
       preference: item.preference,
       trip_urgency: item.urgency,
+      origin: nextOrigin ?? undefined,
     });
   }
 
   function rerunHistory(item: AssistantHistoryEntry) {
+    const nextOrigin = item.origin ?? originOverride ?? assistant?.origin ?? null;
     setDestination(item.destination);
-    setDestinationQuery("");
+    setDestinationQuery(item.destination_query ?? "");
     setMode(item.mode);
     setPreference(item.preference);
+    setTripUrgency(item.trip_urgency);
+    setOriginOverride(nextOrigin);
     setSelectedLotId(null);
-    void search(false, { destination: item.destination, mode: item.mode, preference: item.preference });
+    void search(false, {
+      destination: item.destination,
+      destination_query: item.destination_query ?? null,
+      mode: item.mode,
+      preference: item.preference,
+      trip_urgency: item.trip_urgency,
+      origin: nextOrigin ?? undefined,
+    });
   }
 
   function clearFilters() {
@@ -856,7 +875,7 @@ export function AssistantView() {
             <Panel title="Recent searches" icon={<History className="h-4 w-4" />}>
               <div className="space-y-2">
                 {history.length > 0 ? (
-                  history.map((item) => <HistoryRow key={`${item.searched_at}-${item.destination}-${item.mode}`} item={item} onRerun={rerunHistory} />)
+                  history.map((item) => <HistoryRow key={item.id} item={item} onRerun={rerunHistory} />)
                 ) : (
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-400">
                     Your last searches will appear here for quick reuse.
@@ -1317,6 +1336,7 @@ function RealMap({
   }
 
   function zoomMap(next: number) {
+    cancelInertia();
     setZoom(Math.max(12, Math.min(19, next)));
     setPanOffset({ x: 0, y: 0 });
     setIsSettling(true);
@@ -1324,6 +1344,7 @@ function RealMap({
   }
 
   function nudgeMap(x: number, y: number) {
+    cancelInertia();
     const pixel = latLngToWorldPixel(center[0], center[1], zoom);
     const next = worldPixelToLatLng(pixel.x + x, pixel.y + y, zoom);
     setCenter(next);
@@ -1333,6 +1354,7 @@ function RealMap({
 
   function handleWheel(event: React.WheelEvent<HTMLDivElement>) {
     event.preventDefault();
+    cancelInertia();
     const rect = mapRef.current?.getBoundingClientRect();
     if (!rect) {
       const direction = event.deltaY < 0 ? 1 : -1;
@@ -1489,6 +1511,7 @@ function RealMap({
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
+                cancelInertia();
                 if (marker.kind === "origin") {
                   setCenter(origin);
                   onClearSelection();

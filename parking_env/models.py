@@ -161,10 +161,14 @@ class AssistantAlert(BaseModel):
 
 
 class AssistantHistoryEntry(BaseModel):
+    id: str
     destination: str
     destination_label: str
+    destination_query: Optional[str] = None
     mode: str
     preference: TripPreference
+    origin: Tuple[float, float] | None = None
+    trip_urgency: float = Field(default=0.5, ge=0.0, le=1.0)
     best_lot: Optional[str] = None
     score: float = Field(ge=0.0, le=1.0)
     searched_at: str
@@ -176,6 +180,7 @@ class AssistantState(BaseModel):
     destination_position: Tuple[float, float]
     destination_source: str
     custom_destination: bool
+    destination_query: Optional[str] = None
     travel_mode: str
     preference: TripPreference
     trip_urgency: float = Field(ge=0.0, le=1.0)
@@ -203,5 +208,8 @@ class FavoriteTrip(BaseModel):
     id: str
     label: str
     destination: str
+    destination_query: Optional[str] = None
     mode: str
     preference: TripPreference
+    origin: Tuple[float, float] | None = None
+    urgency: float = Field(ge=0.0, le=1.0)

@@ -38,6 +38,56 @@ def test_demand_scoring_stays_bounded_and_changes_with_urgency():
     )
 
 
+def test_custom_destination_query_drives_provider_and_history(monkeypatch):
+    _reset_history()
+    captured: list[str] = []
+
+    class CaptureProvider:
+        def snapshot(self, destination: str, mode: str, preference: str, refresh: bool = False) -> ParkingSnapshot:
+            del mode, preference, refresh
+            captured.append(destination)
+            lot = ParkingLot(
+                id="demo-lot",
+                name="Demo Lot",
+                address="1 Demo Way",
+                position=(28.61, 77.2),
+                total_spots=20,
+                available_spots=8,
+                hourly_rate=10.0,
+                walk_minutes=6,
+                drive_minutes=4,
+                confidence=0.9,
+                reservation_supported=True,
+            )
+            return ParkingSnapshot(
+                source_name="Mock feed",
+                provider_status="healthy",
+                provider_warning=None,
+                last_updated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                freshness_minutes=3,
+                lots=[lot],
+                live_data_enabled=True,
+            )
+
+    monkeypatch.setattr(assistant_module, "geocode_destination", lambda query: ("India Gate, New Delhi", (28.6129, 77.2295), "mock"))
+    monkeypatch.setattr(assistant_module, "get_provider", lambda: CaptureProvider())
+
+    state = assistant_module.build_assistant_state(
+        "downtown",
+        destination_query="India Gate",
+        origin=(28.6139, 77.2090),
+        trip_urgency=0.75,
+    )
+
+    assert captured == ["India Gate"]
+    assert state.destination_query == "India Gate"
+    assert state.recent_searches[0].destination_query == "India Gate"
+    assert state.recent_searches[0].origin == (28.6139, 77.2090)
+    assert state.recent_searches[0].trip_urgency == 0.75
+    assert state.recent_searches[0].id
+    assert state.recent_searches[0].best_lot == state.best_option.lot.name
+
+
 def test_degraded_provider_emits_alerts(monkeypatch):
     _reset_history()
 

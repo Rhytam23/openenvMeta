@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from uuid import uuid4
 from typing import Dict, List, Tuple
 
 from .models import (
@@ -210,10 +211,14 @@ def _route_summary(destination_label: str, preference: TripPreference, mode: str
 def _record_history(state: AssistantState) -> None:
     best_lot = state.best_option.lot.name if state.best_option else None
     entry = AssistantHistoryEntry(
+        id=uuid4().hex,
         destination=state.destination,
         destination_label=state.destination_label,
+        destination_query=state.destination_query,
         mode=state.travel_mode,
         preference=state.preference,
+        origin=state.origin,
+        trip_urgency=state.trip_urgency,
         best_lot=best_lot,
         score=state.best_option.score if state.best_option else 0.0,
         searched_at=state.last_updated_at,
@@ -309,10 +314,12 @@ def build_assistant_state(
     if not isinstance(preference, TripPreference):
         preference = TripPreference(preference)
     trip_urgency = max(0.0, min(1.0, float(trip_urgency)))
+    destination_query_value = (destination_query or "").strip() or None
     destination_label, destination_point, destination_source, custom_destination = _resolve_destination(destination, destination_query)
     origin = origin or (28.6139, 77.2090)
     provider = get_provider()
-    snapshot = provider.snapshot(destination, mode, preference.value, refresh=refresh)
+    provider_destination = destination_query_value or destination
+    snapshot = provider.snapshot(provider_destination, mode, preference.value, refresh=refresh)
     lots = snapshot.lots
     route_probe = estimate_route_metrics(origin, destination_point, "driving" if mode == "drive" else "walking")
     provider_status = snapshot.provider_status
@@ -340,6 +347,7 @@ def build_assistant_state(
         destination_position=destination_point,
         destination_source=destination_source,
         custom_destination=custom_destination,
+        destination_query=destination_query_value,
         travel_mode=mode,
         preference=preference,
         trip_urgency=trip_urgency,
