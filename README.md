@@ -80,8 +80,8 @@ python -m server.app
 ### Run Baseline Inference
 Evaluates a hybrid heuristic + LLM agent across all three tasks.
 ```bash
-export HF_TOKEN="your_token"
-python inference/run_baseline.py
+export OPENAI_API_KEY="your_openai_key"
+python inference.py
 ```
 
 ## 6. Validation

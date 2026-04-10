@@ -88,6 +88,44 @@ def test_custom_destination_query_drives_provider_and_history(monkeypatch):
     assert state.recent_searches[0].best_lot == state.best_option.lot.name
 
 
+def test_preset_destination_uses_resolved_label_for_provider(monkeypatch):
+    _reset_history()
+    captured: list[str] = []
+
+    class CaptureProvider:
+        def snapshot(self, destination: str, mode: str, preference: str, refresh: bool = False) -> ParkingSnapshot:
+            del mode, preference, refresh
+            captured.append(destination)
+            lot = ParkingLot(
+                id="demo-lot",
+                name="Demo Lot",
+                address="1 Demo Way",
+                position=(28.61, 77.2),
+                total_spots=20,
+                available_spots=8,
+                hourly_rate=10.0,
+                walk_minutes=6,
+                drive_minutes=4,
+                confidence=0.9,
+                reservation_supported=True,
+            )
+            return ParkingSnapshot(
+                source_name="Mock feed",
+                provider_status="healthy",
+                provider_warning=None,
+                last_updated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                freshness_minutes=3,
+                lots=[lot],
+                live_data_enabled=True,
+            )
+
+    monkeypatch.setattr(assistant_module, "get_provider", lambda: CaptureProvider())
+
+    assistant_module.build_assistant_state("downtown")
+
+    assert captured == ["Connaught Place, New Delhi"]
+
+
 def test_degraded_provider_emits_alerts(monkeypatch):
     _reset_history()
 

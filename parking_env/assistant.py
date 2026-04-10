@@ -318,7 +318,7 @@ def build_assistant_state(
     destination_label, destination_point, destination_source, custom_destination = _resolve_destination(destination, destination_query)
     origin = origin or (28.6139, 77.2090)
     provider = get_provider()
-    provider_destination = destination_query_value or destination
+    provider_destination = destination_query_value or destination_label
     snapshot = provider.snapshot(provider_destination, mode, preference.value, refresh=refresh)
     lots = snapshot.lots
     route_probe = estimate_route_metrics(origin, destination_point, "driving" if mode == "drive" else "walking")
