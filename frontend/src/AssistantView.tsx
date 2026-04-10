@@ -398,17 +398,17 @@ export function AssistantView() {
 
   return (
     <div className="grid gap-6 pb-36 xl:grid-cols-[minmax(0,1.45fr)_420px]">
-      <section className="rounded-[2rem] border border-cyan-400/15 bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.14),_transparent_35%),linear-gradient(180deg,_rgba(12,18,32,0.98),_rgba(4,9,21,1))] p-5 shadow-[0_0_80px_rgba(6,182,212,0.12)]">
+      <section className="rounded-[2rem] border border-white/10 bg-slate-950/80 p-5 shadow-[0_18px_60px_rgba(0,0,0,0.24)]">
         <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.4em] text-cyan-300">
+            <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.35em] text-cyan-300">
               <Shield className="h-4 w-4" />
               Parking Assistant
             </div>
-            <h1 className="mt-3 text-3xl font-bold tracking-tight text-white lg:text-4xl">
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white lg:text-4xl">
               Find parking near {assistant?.destination_label ?? "your destination"}
             </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
               Compare route fit, cost, confidence, and reserve support before you leave.
             </p>
           </div>
@@ -653,14 +653,14 @@ export function AssistantView() {
                   onClearSelection={() => setSelectedLotId(null)}
                   destinationLabel={assistant.destination_label}
                 />
-                <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                  <InfoBadge label="Origin" value={formatPos(currentOrigin)} />
-                  <InfoBadge label="Destination" value={formatPos(assistant.destination_position)} />
-                  <InfoBadge label="Strategy" value={assistant.preference} />
-                </div>
-                <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-slate-300">
-                  Selected area: {selectedDestination?.label ?? assistant.destination_label}
-                </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          <InfoBadge label="Origin" value={formatPos(currentOrigin)} />
+          <InfoBadge label="Destination" value={formatPos(assistant.destination_position)} />
+          <InfoBadge label="Strategy" value={assistant.preference} />
+        </div>
+        <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-slate-400">
+          Selected area: {selectedDestination?.label ?? assistant.destination_label}
+        </div>
                 {selectedLot && (
                   <div className="mt-3 rounded-2xl border border-cyan-300/20 bg-cyan-500/10 p-4">
                     <div className="flex items-center justify-between gap-3">
@@ -700,7 +700,7 @@ export function AssistantView() {
                     </div>
                   </div>
                 )}
-                <div className="mt-2 text-xs uppercase tracking-[0.28em] text-slate-400">
+                <div className="mt-2 text-xs uppercase tracking-[0.22em] text-slate-400">
                   {originOverride ? "GPS origin active" : "Using assistant default origin"}
                   {" | "}
                   Drag to pan, wheel to zoom, arrows to move, +/- to zoom, click markers to focus.
@@ -715,7 +715,7 @@ export function AssistantView() {
 
           <Panel title="Recommended Lot" icon={<Target className="h-4 w-4" />}>
             {primaryRecommendation ? (
-              <div className="rounded-[1.5rem] border border-cyan-300/20 bg-cyan-500/10 p-4">
+              <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/60 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-lg font-bold text-white">{primaryRecommendation.lot.name}</div>
@@ -737,8 +737,8 @@ export function AssistantView() {
                   <InfoRow label="From origin" value={`${primaryRecommendation.distance_from_origin.toFixed(2)} km`} />
                   <InfoRow label="Demand" value={`${Math.round(primaryRecommendation.demand_pressure * 100)}%`} />
                 </div>
-                <p className="mt-4 text-sm text-cyan-50">{primaryRecommendation.reason}</p>
-                <p className="mt-2 text-sm text-slate-300">{primaryRecommendation.tradeoff}</p>
+                <p className="mt-4 text-sm text-slate-100">{primaryRecommendation.reason}</p>
+                <p className="mt-2 text-sm text-slate-400">{primaryRecommendation.tradeoff}</p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button
                     onClick={() => openLotDirections(primaryRecommendation.lot)}
@@ -767,11 +767,11 @@ export function AssistantView() {
                             : "border-white/10 bg-white/5 text-slate-200 hover:border-cyan-300/30 hover:bg-cyan-400/10"
                         }`}
                       >
-                        <div className="uppercase tracking-[0.24em] text-[10px] text-slate-300">Top {index + 1}</div>
-                        <div className="mt-1">{item.lot.name}</div>
-                        <div className="mt-1 text-[10px] font-normal text-slate-300">
-                          ${item.lot.hourly_rate.toFixed(2)} | {item.lot.walk_minutes}m walk | {Math.round(item.lot.confidence * 100)}%
-                        </div>
+                          <div className="uppercase tracking-[0.18em] text-[10px] text-slate-400">Top {index + 1}</div>
+                          <div className="mt-1">{item.lot.name}</div>
+                          <div className="mt-1 text-[10px] font-normal text-slate-400">
+                            ${item.lot.hourly_rate.toFixed(2)} | {item.lot.walk_minutes}m walk | {Math.round(item.lot.confidence * 100)}%
+                          </div>
                       </button>
                     ))}
                   </div>
@@ -1048,8 +1048,8 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-4">
-      <div className="flex items-center justify-between gap-3 text-xs uppercase tracking-[0.35em] text-slate-400">
+    <div className="rounded-[1.4rem] border border-white/10 bg-slate-950/55 p-4">
+      <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.28em] text-slate-400">
         <div className="flex items-center gap-2">
           {icon}
           {title}
@@ -1093,7 +1093,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 
 function InfoBadge({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+    <div className="rounded-2xl border border-white/10 bg-slate-950/55 px-4 py-3">
       <div className="text-[10px] uppercase tracking-[0.28em] text-slate-400">{label}</div>
       <div className="mt-1 text-sm font-semibold text-white">{value}</div>
     </div>
@@ -1102,7 +1102,7 @@ function InfoBadge({ label, value }: { label: string; value: string }) {
 
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+    <div className="rounded-2xl border border-white/10 bg-slate-950/55 p-3">
       <div className="text-[10px] uppercase tracking-[0.28em] text-slate-400">{label}</div>
       <div className="mt-2 text-sm font-bold text-white">{value}</div>
     </div>
@@ -1111,7 +1111,7 @@ function MiniStat({ label, value }: { label: string; value: string }) {
 
 function Bullet({ title, text }: { title: string; text: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+    <div className="rounded-2xl border border-white/10 bg-slate-950/55 p-4">
       <div className="font-semibold text-white">{title}</div>
       <div className="mt-1 text-sm leading-6 text-slate-300">{text}</div>
     </div>
@@ -1159,11 +1159,11 @@ function HistoryRow({ item, onRerun }: { item: AssistantHistoryEntry; onRerun: (
           </button>
         </div>
       </div>
-      <div className="mt-2 text-xs uppercase tracking-[0.28em] text-slate-400">
-        {item.mode} | {item.searched_at ? new Date(item.searched_at).toLocaleTimeString() : "--"}
+      <div className="mt-2 text-xs uppercase tracking-[0.22em] text-slate-400">
+        {item.mode} · {item.searched_at ? new Date(item.searched_at).toLocaleTimeString() : "--"}
       </div>
-      <div className="mt-2 text-sm text-slate-300">
-        Best: {item.best_lot ?? "n/a"} | Score {item.score.toFixed(2)}
+      <div className="mt-2 text-sm text-slate-400">
+        Best: {item.best_lot ?? "n/a"} · Score {item.score.toFixed(2)}
       </div>
     </div>
   );
