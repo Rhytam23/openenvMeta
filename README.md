@@ -14,6 +14,19 @@ pinned: false
 
 A production-grade, OpenEnv-compliant parking assistant for urban parking discovery and reservation. This project models real-world congestion challenges and evaluates intelligent agents on their ability to efficiently navigate and secure parking in a live city workflow.
 
+## Repository Map
+
+Keep the root focused on runnable entry points and config:
+
+- [app.py](app.py) - app shim for the Space
+- [inference.py](inference.py) - benchmark baseline
+- [server/](server) - FastAPI backend
+- [parking_env/](parking_env) - assistant logic, geo, and providers
+- [frontend/](frontend) - React UI
+- [tasks/](tasks) - OpenEnv tasks and graders
+- [tests/](tests) - validation coverage
+- [docs/](docs) - supporting notes and preview material
+
 ## 1. Overview
 The **Smart Parking Assistant** models a parking decision workflow where agents must identify available parking spots, handle reservations, and choose efficient routes to secure a space. It emphasizes trajectory-based efficiency and optimal decision-making under resource constraints.
 
